@@ -1,0 +1,34 @@
+@startuml
+title Prompt Types and LLM Interaction Flow
+
+start
+
+:User defines task;
+
+partition "Prompt Construction" {
+    :Choose Prompt Type;
+    note right
+      Zero-Shot: No examples
+      One-Shot: 1 example
+      Few-Shot: Multiple examples
+      Chain-of-Thought: Stepwise reasoning
+      Translation: Language conversion
+      Context-Driven: Extra background
+      Constraint-Bound: Rules applied
+    end note
+}
+
+:Send prompt to LLM;
+
+:Model processes prompt;
+
+partition "LLM Output Adjustment" {
+    :Apply reasoning (if CoT);
+    :Follow constraints (if constraint-bound);
+    :Consider context (if context-driven);
+}
+
+:Generate final response;
+
+stop
+@enduml

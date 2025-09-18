@@ -1,0 +1,20 @@
+@startuml
+title LangChain Architecture - Hierarchical View
+
+[LLMs & Chat Models\n(GPT-4, Claude)] as LLMs
+[Prompts\n(Templates)] as Prompts
+[Chains\n(Sequence: Summarize → Translate)] as Chains
+[Memory\n(Context Store)] as Memory
+[Agents\n(Autonomous Unit)] as Agents
+[Tools & Connectors\n(SQL DB, APIs, Web Search)] as Tools
+[Vector Stores / Retrieval\n(FAISS, Pinecone, Chroma)] as VectorStores
+
+LLMs --> Prompts
+Prompts --> Chains
+Memory --> Chains
+Chains --> Agents
+Agents --> Tools
+Agents --> VectorStores
+Chains --> VectorStores
+
+@enduml

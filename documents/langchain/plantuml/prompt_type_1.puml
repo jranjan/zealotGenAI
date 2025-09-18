@@ -1,0 +1,76 @@
+@startuml
+title LLM Prompt Types with Examples and Expected Outcomes
+
+start
+
+:User defines task;
+
+partition "Prompt Type Selection & Examples" {
+
+    :Zero-Shot;
+    note right
+      1. "Summarize this paragraph in one sentence"
+      2. "Translate 'Good morning' to Spanish"
+      3. "List three advantages of renewable energy"
+    end note
+
+    :One-Shot;
+    note right
+      1. "Q: 5+7=? A:12. Q: 8+6=?"
+      2. "Sentence: 'The cat slept.' Passive: ?"
+      3. "Translate 'Hello' to French using example"
+    end note
+
+    :Few-Shot;
+    note right
+      1. "Q: 2+3=5, Q:7-2=5, Q:9+1=?"
+      2. "Convert active→passive: multiple examples"
+      3. "Translate multiple sentences English→Spanish"
+    end note
+
+    :Chain-of-Thought (CoT);
+    note right
+      1. "Solve 23*7 step-by-step"
+      2. "Train problem with stepwise calculation"
+      3. "Dice probability problem reasoning"
+    end note
+
+    :Language Translation;
+    note right
+      1. "Translate 'Good morning' to French"
+      2. "Convert 'I love programming' to Japanese"
+      3. "Translate paragraph English→Spanish"
+    end note
+
+    :Context-Driven;
+    note right
+      1. "User likes sci-fi, recommend movie"
+      2. "Draft professional email, context: client meeting"
+      3. "Write a poem inspired by autumn"
+    end note
+
+    :Constraint-Bound;
+    note right
+      1. "List 5 fruits, none red"
+      2. "Write a 100-word summary of article"
+      3. "Generate factorial function without loops"
+    end note
+}
+
+partition "LLM Processing" {
+    :Model interprets prompt;
+    :Applies reasoning, context, examples, constraints as needed;
+}
+
+partition "Expected Outcomes" {
+    :Zero-Shot → Fast, generic output; medium accuracy; low creativity;
+    :One-Shot → Pattern-following; medium-high accuracy; medium creativity;
+    :Few-Shot → Structured, consistent output; high accuracy; medium-high creativity;
+    :Chain-of-Thought → Logical, stepwise reasoning; very high accuracy; medium creativity;
+    :Language Translation → Accurate, context-aware translation; high accuracy; medium creativity;
+    :Context-Driven → Personalized/adapted output; high accuracy; medium-high creativity;
+    :Constraint-Bound → Controlled, rule-adherent output; very high accuracy; low-medium creativity;
+}
+
+stop
+@enduml

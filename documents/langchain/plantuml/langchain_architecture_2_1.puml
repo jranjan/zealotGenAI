@@ -1,0 +1,28 @@
+@startuml
+title LangChain Architecture - Hub-and-Spoke View (Vertical)
+
+skinparam ranksep 30
+skinparam nodesep 20
+
+[Agents\n(Central Reasoning Unit)] as Agents
+
+rectangle "Core Components" {
+  [LLMs & Chat Models\n(GPT-4, Claude)] as LLMs
+  [Prompts\n(Templates)] as Prompts
+  [Chains\n(Workflow Orchestrator)] as Chains
+  [Memory\n(Context Store)] as Memory
+}
+
+rectangle "External Interfaces" {
+  [Tools & Connectors\n(SQL DB, APIs)] as Tools
+  [Vector Stores / Retrieval\n(FAISS, Pinecone, Chroma)] as VectorStores
+}
+
+Agents -down-> LLMs
+Agents -down-> Prompts
+Agents -down-> Chains
+Agents -down-> Memory
+Agents -down-> Tools
+Agents -down-> VectorStores
+
+@enduml
