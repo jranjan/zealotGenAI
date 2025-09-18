@@ -1,0 +1,28 @@
+@startuml
+title Engineering Manager - LangChain Use Cases
+
+left to right direction
+
+actor "Engineering Manager" as Manager
+
+rectangle "LangChain-Powered Assistant" {
+    usecase "Retrieve Agile Policies\n(e.g., Definition of Done)" as RAG
+    usecase "Automate Meetings & Notifications\n(e.g., Sprint Planning)" as Agents
+    usecase "Transform Reports\n(Extract Sprint Metrics)" as DataEnrich
+    usecase "Conversational Memory\n(Recall Retro Decisions)" as Conv
+    usecase "Decision Support\n(Prioritize Backlog Items)" as Decision
+    usecase "Multi-step Pipeline\n(Summarize → Translate → Email)" as Pipeline
+    usecase "Telemetry & Monitoring\n(Summarize CI/CD Logs)" as Telemetry
+    usecase "Domain-Specific Advisor\n(Best Practices for PRs)" as DomainAI
+}
+
+Manager --> RAG
+Manager --> Agents
+Manager --> DataEnrich
+Manager --> Conv
+Manager --> Decision
+Manager --> Pipeline
+Manager --> Telemetry
+Manager --> DomainAI
+
+@enduml

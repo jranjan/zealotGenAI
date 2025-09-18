@@ -1,0 +1,5 @@
+requests>=2.31.0
+cohere>=4.2.0
+
+pydantic<2
+

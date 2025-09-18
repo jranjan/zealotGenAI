@@ -1,0 +1,58 @@
+@startuml
+title Text Generation Sampling Flow with Parameter Strategies (Temperature First)
+
+start
+
+:Model computes probability distribution
+over all possible tokens;
+
+:Temperature scaling
+(adjust probabilities);
+
+partition "Filtering Stage" {
+    if (Apply Top-K or Top-P?) then (Top-K)
+        :Keep K most probable tokens;
+    else (Top-P)
+        :Keep smallest set of tokens
+        with cumulative probability ≥ P;
+    endif
+}
+
+partition "Penalty Adjustments" {
+    :Apply Frequency Penalty
+    (reduce repetition);
+    :Apply Presence Penalty
+    (encourage novelty);
+}
+
+split
+  :Conservative Strategy;
+  note right
+    - Low Temperature (0.2–0.3)
+    - Small Top-K (≤20)
+    - No penalties
+    → Stable, predictable output
+  end note
+split again
+  :Creative Strategy;
+  note right
+    - High Temperature (1.2–1.5)
+    - Large Top-K (≥100) or Top-P ~0.95
+    - Presence Penalty applied
+    → Diverse, adventurous output
+  end note
+split again
+  :Balanced Strategy;
+  note right
+    - Medium Temp (0.7–1.0)
+    - Top-P ~0.9
+    - Mild penalties
+    → Natural, adaptable output
+  end note
+end split
+
+:Final sampling
+(draw next token from adjusted distribution);
+
+stop
+@enduml
