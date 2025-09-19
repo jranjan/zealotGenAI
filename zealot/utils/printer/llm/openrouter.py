@@ -107,7 +107,7 @@ Max Input Tokens: {info['max_input_tokens_formatted']}
 Max Output Tokens: {info['max_output_tokens_formatted']}
 Max Total Tokens: {info['max_total_tokens_formatted']}"""
         
-        OpenRouterPrinter.print_section(info_text, f"Model Information: {info['model']}", "🤖")
+        OpenRouterPrinter.print_section(info_text, f"Model Information | Provider: OpenRouter | Model: {info['model']}", "🤖")
     
     @staticmethod
     def print_model_validation(model: OpenRouterModel, input_tokens: int, output_tokens: int) -> None:
@@ -123,10 +123,10 @@ Max Total Tokens: {info['max_total_tokens_formatted']}"""
         
         if is_valid:
             content = f"✅ Token usage is valid\nInput: {input_tokens:,} tokens\nOutput: {output_tokens:,} tokens\nTotal: {input_tokens + output_tokens:,} tokens"
-            OpenRouterPrinter.print_section(content, f"Token Validation: {model.value}", "✅")
+            OpenRouterPrinter.print_section(content, f"Token Validation | Provider: OpenRouter | Model: {model.value}", "✅")
         else:
             content = f"❌ Token usage exceeds limits\n{error_msg}\nInput: {input_tokens:,} tokens\nOutput: {output_tokens:,} tokens\nTotal: {input_tokens + output_tokens:,} tokens"
-            OpenRouterPrinter.print_section(content, f"Token Validation: {model.value}", "❌")
+            OpenRouterPrinter.print_section(content, f"Token Validation | Provider: OpenRouter | Model: {model.value}", "❌")
     
     @staticmethod
     def print_provider_summary() -> None:

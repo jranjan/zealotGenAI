@@ -4,7 +4,7 @@
   "base_url": "https://api.cohere.ai/v1",
   "model": "command-a-03-2025",
   "temperature": 0.2,
-  "max_tokens": 10,
+  "max_tokens": 1000,
   "timeout": 30,
   "additional_params": {}
 }

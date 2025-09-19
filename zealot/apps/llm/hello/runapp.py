@@ -22,26 +22,19 @@ def main():
     # Initialize the Hello LLM app
     app = LLMHelloApp(LLMProvider.COHERE, "Hello LLM App")
     
-    print("=" * 80)
-    print("🔧 CONFIGURATION SETUP")
-    print("=" * 80)
-    
     # Show configuration information
     try:
         client = app._get_client()
         # Get the default model from the client configuration
         provider_info = client.get_provider_info()
+        print(f"Provider: {provider_info['display_name']} | Model: {provider_info['model']}")
         LLMPrinter.print_llm_client(client, provider_info['model'])
     except Exception as e:
         LLMPrinter.print_error(f"Failed to initialize client or get provider info: {e}", "CONFIGURATION ERROR")
         return
     
-    print("=" * 80)
-    print("📝 PROMPT DEFINITION")
-    print("=" * 80)
-    
     # Define the prompt
-    prompt = "How are you doing today?"
+    prompt = "Tell me about India!"
     LLMPrinter.print_prompt(prompt)
     
     print("=" * 80)
@@ -63,7 +56,7 @@ def main():
     # Execute the LLM
     try:
         # Processing section
-        LLMPrinter.print_processing(f"Calling {provider_info['display_name']} API...")
+        LLMPrinter.print_processing(f"Calling {provider_info['display_name']} API | Provider: {provider_info['display_name']} | Model: {provider_info['model']}")
         
         # Generate response
         response = app.run(prompt)

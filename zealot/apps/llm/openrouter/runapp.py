@@ -108,6 +108,7 @@ def main():
         LLMPrinter.print_prompt(prompt)
         
         # Model information section
+        print(f"Provider: {provider_info['display_name']} | Model: {model_name}")
         LLMPrinter.print_llm_client(client, model_name)
         
         # API key validation
@@ -122,7 +123,7 @@ def main():
         print(f"✅ API key found and validated | Provider: {provider_info['display_name']} | Model: {model_name}")
         
         # Processing section
-        LLMPrinter.print_processing(f"Calling {provider_info['display_name']} API...")
+        LLMPrinter.print_processing(f"Calling {provider_info['display_name']} API | Provider: {provider_info['display_name']} | Model: {model_name}")
         
         # Generate response
         response = app.run(prompt, model_name, provider_params=provider_params)

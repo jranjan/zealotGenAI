@@ -26,7 +26,7 @@ class LLMPrinter:
         print("=" * 80)
         print(f"📝 {title}")
         print("=" * 80)
-        print(f"🤖 {prompt}")
+        print(f"{prompt}")
         print()
     
     @staticmethod
@@ -44,6 +44,7 @@ class LLMPrinter:
         print(f"{response}")
         print("=" * 80)
         print()
+    
     
     @staticmethod
     def print_llm_client(client, selected_model: str, title: str = "LLM CLIENT INFO") -> None:
@@ -76,6 +77,7 @@ class LLMPrinter:
             # Show selected model prominently
             print(f"Selected Model: {selected_model}")
             print(f"Default Model: {provider_info['model']}")
+            print(f"Provider: {provider_info['display_name']} | Model: {selected_model}")
             
             print(f"Temperature: {provider_info['temperature']}")
             print(f"Max Tokens: {provider_info['max_tokens']}")
