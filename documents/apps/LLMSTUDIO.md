@@ -8,20 +8,24 @@ LLM Studio is a comprehensive Streamlit-based web application that provides an i
 
 ### Core Functionality
 
-- **Multi-Model Support**: Access to all OpenRouter-supported models
-- **Interactive UI**: User-friendly Streamlit interface
-- **Real-time Generation**: Live LLM response generation
-- **Advanced Parameters**: Fine-tune model behavior with multiple knobs
-- **Model Information**: Detailed token limits and capabilities display
-- **Configuration Management**: Environment-based API key handling
+| Feature                      | Description                                    |
+|------------------------------|------------------------------------------------|
+| **Multi-Model Support**      | Access to all OpenRouter-supported models      |
+| **Interactive UI**           | User-friendly Streamlit interface              |
+| **Real-time Generation**     | Live LLM response generation                   |
+| **Advanced Parameters**      | Fine-tune model behavior with multiple knobs   |
+| **Model Information**        | Detailed token limits and capabilities display |
+| **Configuration Management** | Environment-based API key handling             |
 
 ### Advanced Parameter Controls
-- **Temperature** (0.0-2.0): Controls response randomness and creativity
-- **Max Tokens** (1-100,000): Limits response length with model-specific caps
-- **Top-K** (1-100): Fixed shortlist of most likely tokens
-- **Top-P** (0.0-1.0): Dynamic probability-based token selection
-- **Frequency Penalty** (-2.0 to 2.0): Reduces word repetition
-- **Presence Penalty** (-2.0 to 2.0): Encourages novel content
+| Parameter             | Range       | Description                                     |
+|-----------------------|-------------|-------------------------------------------------|
+| **Temperature**       | 0.0-2.0     | Controls response randomness and creativity     |
+| **Max Tokens**        | 1-100,000   | Limits response length with model-specific caps |
+| **Top-K**             | 1-100       | Fixed shortlist of most likely tokens           |
+| **Top-P**             | 0.0-1.0     | Dynamic probability-based token selection       |
+| **Frequency Penalty** | -2.0 to 2.0 | Reduces word repetition                         |
+| **Presence Penalty**  | -2.0 to 2.0 | Encourages novel content                        |
 
 
 # 🏗️ Architecture
@@ -192,9 +196,9 @@ The app includes predefined system prompt templates to guide the AI's behavior a
 | | Poet Lyricist | Emotional poems and lyrics with rhythm | Poetry, songwriting, creative expression |
 | | Brainstorming Partner | Multiple creative ideas and solutions | Ideation, problem-solving, innovation |
 | | Persona Based Roleplay | Consistent character responses | Roleplay, character interactions |
-| **Agile Team / Members** | Product Owner | Creating and managing user stories with acceptance criteria, dependencies, and business context | Story creation, backlog management, stakeholder alignment |
-| | Scrum Master | Facilitating story creation, managing dependencies, removing impediments | Sprint planning, team facilitation, agile coaching |
-| | Team Member | Breaking down stories, defining technical acceptance criteria, implementation context | Story refinement, technical planning, development readiness |
+| **Vulnerability Scanning / Role Play** | Product Owner | Creating user stories for Salesforce vulnerability scanning with Tenable across regulated/commercial/data center environments, defining acceptance criteria (starting with 'Verify' in bulleted lists), compliance context (SOX, GDPR, HIPAA) | Story creation, vulnerability management, compliance alignment |
+| | Scrum Master | Facilitating vulnerability scanning story creation, managing security dependencies, ensuring compliance-driven acceptance criteria, removing security testing impediments | Sprint planning, security team facilitation, vulnerability management coaching |
+| | Developer | Breaking down vulnerability scanning stories, defining technical acceptance criteria for Tenable integration, identifying security dependencies, implementation context for vulnerability management | Story refinement, technical planning, vulnerability scanning development |
 
 **Usage Tips:**
 - Select "Custom" to write your own system prompt
