@@ -34,18 +34,16 @@ class OpenRouterModel(Enum):
     CLAUDE_3_HAIKU = ("anthropic/claude-3-haiku", ModelLimits(200000, 4096, 200000))
     
     # Google
-    GEMINI_PRO = ("google/gemini-pro", ModelLimits(30720, 2048, 30720))
+    GEMINI_PRO = ("google/gemini-2.5-flash", ModelLimits(30720, 2048, 30720))
     
     # Cohere
-    COHERE_COMMAND = ("cohere/command", ModelLimits(4096, 1024, 4096))
-    COHERE_COMMAND_LIGHT = ("cohere/command-light", ModelLimits(4096, 1024, 4096))
-    COHERE_COMMAND_NIGHTLY = ("cohere/command-nightly", ModelLimits(4096, 1024, 4096))
+    COHERE_COMMAND = ("cohere/command-a", ModelLimits(4096, 1024, 4096))
     
     # Meta
     LLAMA_3_1_8B_INSTRUCT = ("meta-llama/llama-3.1-8b-instruct", ModelLimits(128000, 8192, 128000))
     
     # Mistral
-    MISTRAL_7B_INSTRUCT = ("mistralai/mistral-7b-instruct", ModelLimits(32768, 8192, 32768))
+    MISTRAL_7B_INSTRUCT = ("mistralai/mistral-nemo", ModelLimits(32768, 8192, 32768))
     
     def __init__(self, model_name: str, limits: ModelLimits):
         self.model_name = model_name
