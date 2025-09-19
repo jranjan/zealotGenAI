@@ -13,6 +13,7 @@ class LLMProvider(Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     GOOGLE = "google"
+    OPENROUTER = "openrouter"
     
     @classmethod
     def from_string(cls, provider_str: str) -> 'LLMProvider':
@@ -33,6 +34,8 @@ class LLMProvider(Enum):
             return cls.ANTHROPIC
         elif "google" in provider_str or "gemini" in provider_str:
             return cls.GOOGLE
+        elif "openrouter" in provider_str:
+            return cls.OPENROUTER
         
         raise ValueError(f"Unknown LLM provider: {provider_str}")
     

@@ -21,7 +21,7 @@ Example:
 
 import os
 from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple
 
 from ..configs import LLMConfig
 from ..providers import LLMProvider
@@ -155,3 +155,43 @@ class BaseLLMClient(ABC):
             'max_tokens': self.config.max_tokens,
             'base_url': self.config.base_url
         }
+    
+    def validate_tokens(self, input_tokens: int, output_tokens: int) -> Tuple[bool, str]:
+        """
+        Validate token usage against model limits (if available)
+        
+        Args:
+            input_tokens: Number of input tokens
+            output_tokens: Number of output tokens
+            
+        Returns:
+            tuple: (is_valid, error_message)
+        """
+        # Try to get model limits from OpenRouterModel if available
+        try:
+            from ..models import OpenRouterModel
+            model = OpenRouterModel.from_string(self.config.model)
+            return model.validate_tokens(input_tokens, output_tokens)
+        except (ImportError, ValueError):
+            # Fallback: basic validation using config max_tokens
+            if output_tokens > self.config.max_tokens:
+                return False, f"Output tokens ({output_tokens}) exceed configured max_tokens ({self.config.max_tokens})"
+            return True, ""
+    
+    def get_token_limits(self) -> Optional[Dict[str, int]]:
+        """
+        Get token limits for the current model (if available)
+        
+        Returns:
+            dict with token limits or None if not available
+        """
+        try:
+            from ..models import OpenRouterModel
+            model = OpenRouterModel.from_string(self.config.model)
+            return {
+                'max_input_tokens': model.get_max_input_tokens(),
+                'max_output_tokens': model.get_max_output_tokens(),
+                'max_total_tokens': model.get_max_total_tokens()
+            }
+        except (ImportError, ValueError):
+            return None

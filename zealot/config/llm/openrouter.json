@@ -1,0 +1,13 @@
+{
+  "provider": "openrouter",
+  "api_key": "${OPENROUTER_API_KEY}",
+  "base_url": "https://openrouter.ai/api/v1/chat/completions",
+  "model": "openai/gpt-4o",
+  "temperature": 0.7,
+  "max_tokens": 200,
+  "timeout": 30,
+  "additional_params": {
+    "http_referer": "https://zealotgenai.com",
+    "x_title": "ZealotGenAI"
+  }
+}

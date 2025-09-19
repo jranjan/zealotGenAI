@@ -31,7 +31,7 @@ The scripts in this directory are designed to streamline development workflows, 
 | Usage | Command |
 |-------|---------|
 | Basic (auto-detect) | `./scripts/devtest/build_docker.sh <app_name>` |
-| Examples | `./scripts/devtest/build_docker.sh langchain`<br>`./scripts/devtest/build_docker.sh llm` |
+| Examples | `./scripts/devtest/build_docker.sh langchain`<br>`./scripts/devtest/build_docker.sh openrouter`<br>`./scripts/devtest/build_docker.sh hello` |
 | Explicit path | `./scripts/devtest/build_docker.sh myapp /path/to/my/app` |
 | Help | `./scripts/devtest/build_docker.sh --help` |
 
@@ -42,9 +42,11 @@ The scripts in this directory are designed to streamline development workflows, 
 
 ### Auto-Detection Logic
 The script automatically searches for app paths in this order:
-1. `zealot/apps/<app_name>/`
-2. `apps/<app_name>/`
-3. Root directory `<app_name>/`
+1. `zealot/apps/llm/<app_name>/` (for LLM apps)
+2. `zealot/apps/<app_name>/`
+3. `apps/llm/<app_name>/`
+4. `apps/<app_name>/`
+5. Root directory `<app_name>/`
 
 ### Generated Dockerfile Structure
 ```dockerfile
@@ -76,7 +78,7 @@ CMD ["python", "app.py"]
 | Usage | Command |
 |-------|---------|
 | Basic (auto-detect) | `./scripts/devtest/build_venv.sh <app_name>` |
-| Examples | `./scripts/devtest/build_venv.sh langchain`<br>`./scripts/devtest/build_venv.sh llm` |
+| Examples | `./scripts/devtest/build_venv.sh langchain`<br>`./scripts/devtest/build_venv.sh openrouter`<br>`./scripts/devtest/build_venv.sh hello` |
 | Explicit path | `./scripts/devtest/build_venv.sh myapp /path/to/my/app` |
 | Force recreation | `./scripts/devtest/build_venv.sh --force <app_name>` |
 | Help | `./scripts/devtest/build_venv.sh --help` |
@@ -88,9 +90,11 @@ CMD ["python", "app.py"]
 
 ### Auto-Detection Logic
 The script automatically searches for app paths in this order:
-1. `zealot/apps/<app_name>/`
-2. `apps/<app_name>/`
-3. Root directory `<app_name>/`
+1. `zealot/apps/llm/<app_name>/` (for LLM apps)
+2. `zealot/apps/<app_name>/`
+3. `apps/llm/<app_name>/`
+4. `apps/<app_name>/`
+5. Root directory `<app_name>/`
 
 ### Virtual Environment Structure
 ```

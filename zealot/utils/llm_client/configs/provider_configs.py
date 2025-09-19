@@ -86,7 +86,7 @@ if __name__ == "__main__":
         defaults = ProviderConfig.get_defaults(provider)
         print(f"\n{provider.upper()}:")
         print(f"  Base URL: {defaults.base_url}")
-        print(f"  Model: {defaults.model}")
+        print(f"  Provider: {provider.upper()} | Model: {defaults.model}")
         print(f"  Temperature: {defaults.temperature}")
         print(f"  Max Tokens: {defaults.max_tokens}")
         print(f"  Timeout: {defaults.timeout}")

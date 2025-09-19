@@ -7,7 +7,7 @@ from typing import Dict, Any
 
 from .providers import LLMProvider
 from .configs import get_llm_config
-from .clients import BaseLLMClient, CohereClient, OpenAIClient, AnthropicClient, GoogleClient
+from .clients import BaseLLMClient, CohereClient, OpenAIClient, AnthropicClient, GoogleClient, OpenRouterClient
 
 
 class LLMClientFactory:
@@ -19,6 +19,7 @@ class LLMClientFactory:
         LLMProvider.OPENAI: OpenAIClient,
         LLMProvider.ANTHROPIC: AnthropicClient,
         LLMProvider.GOOGLE: GoogleClient,
+        LLMProvider.OPENROUTER: OpenRouterClient,
     }
     
     @classmethod
