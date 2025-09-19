@@ -128,45 +128,45 @@ zealot/apps/llm/llmstudio/
 
 ### Parameter Reference Table
 
-| Parameter | Description |
-|-----------|-------------|
-| **Top-K** | Defines a fixed shortlist of the most likely tokens, preventing the model from wandering too far into low-probability options |
+| Parameter                    | Description                                                                                                                                                        |
+|------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Top-K**                    | Defines a fixed shortlist of the most likely tokens, preventing the model from wandering too far into low-probability options                                      |
 | **Top-P (Nucleus Sampling)** | Creates a probability-based shortlist that adapts dynamically to context, ensuring the model considers just enough options to stay fluent while remaining flexible |
-| **Temperature** | Controls the randomness of selection, tuning whether the model plays it safe (low temperature) or experiments more freely (high temperature) |
-| **Frequency Penalty** | Helps avoid redundancy by discouraging the model from repeating the same words too often |
-| **Presence Penalty** | Pushes for novelty, encouraging the model to introduce words or ideas that haven't appeared yet in the text |
+| **Temperature**              | Controls the randomness of selection, tuning whether the model plays it safe (low temperature) or experiments more freely (high temperature)                       |
+| **Frequency Penalty**        | Helps avoid redundancy by discouraging the model from repeating the same words too often                                                                           |
+| **Presence Penalty**         | Pushes for novelty, encouraging the model to introduce words or ideas that haven't appeared yet in the text                                                        |
 
 ### Parameter Tuning Ranges
 
-| Parameter | Range | Effect | Recommendation |
-|-----------|-------|--------|----------------|
-| **Temperature** | 0.0-0.3 | Very focused, deterministic responses | For precise, factual content |
-| | 0.4-0.7 | Balanced creativity and coherence | **Recommended for most use cases** |
-| | 0.8-1.2 | More creative and varied responses | For creative writing |
-| | 1.3-2.0 | Highly creative, potentially less coherent | For experimental content |
-| **Top-K** | 1-10 | Very focused, conservative responses | For deterministic outputs |
-| | 20-40 | Balanced selection | **Recommended default** |
-| | 50-100 | More diverse, potentially less coherent | For creative exploration |
-| **Top-P (Nucleus Sampling)** | 0.1-0.3 | Very focused responses | For precise, narrow outputs |
-| | 0.7-0.9 | Balanced creativity | **Recommended for most cases** |
-| | 0.9-1.0 | Maximum diversity | For maximum creativity |
-| **Penalty Parameters** | Negative values | Encourage repetition/avoid novelty | Rarely used |
-| | 0.0 | No penalty (neutral) | **Default setting** |
-| | Positive values | Reduce repetition/encourage novelty | For varied content |
+| Parameter                    | Range           | Effect                                     | Recommendation                     |
+|------------------------------|-----------------|--------------------------------------------|------------------------------------|
+| **Temperature**              | 0.0-0.3         | Very focused, deterministic responses      | For precise, factual content       |
+|                              | 0.4-0.7         | Balanced creativity and coherence          | **Recommended for most use cases** |
+|                              | 0.8-1.2         | More creative and varied responses         | For creative writing               |
+|                              | 1.3-2.0         | Highly creative, potentially less coherent | For experimental content           |
+| **Top-K**                    | 1-10            | Very focused, conservative responses       | For deterministic outputs          |
+|                              | 20-40           | Balanced selection                         | **Recommended default**            |
+|                              | 50-100          | More diverse, potentially less coherent    | For creative exploration           |
+| **Top-P (Nucleus Sampling)** | 0.1-0.3         | Very focused responses                     | For precise, narrow outputs        |
+|                              | 0.7-0.9         | Balanced creativity                        | **Recommended for most cases**     |
+|                              | 0.9-1.0         | Maximum diversity                          | For maximum creativity             |
+| **Penalty Parameters**       | Negative values | Encourage repetition/avoid novelty         | Rarely used                        |
+|                              | 0.0             | No penalty (neutral)                       | **Default setting**                |
+|                              | Positive values | Reduce repetition/encourage novelty        | For varied content                 |
 
 
 ### Parameter Combination Strategies
 
-| Outcome | Potential Combination | Description | Example Use Case |
-|---------|----------------------|-------------|------------------|
-| **Conservative & Accurate** | Low Temperature (0.1–0.3), Small Top-K (≤20), No penalties | Model picks only from safest options. Predictable, focused, minimal risk of nonsense. | Step-by-step math solutions, legal contracts, medical instructions |
-| **Balanced Assistant** | Medium Temperature (0.7–1.0), Top-P ~0.9, Mild penalties | Natural mix of predictability and creativity. Can adapt across domains without drifting. | General-purpose chatbot, customer support, Q&A with light variation |
-| **Creative & Diverse** | High Temperature (1.2–1.8), Large Top-K (≥100), Presence Penalty (0.5–0.8) | Model explores unusual options, introduces new ideas, avoids repetition. | Storytelling, brainstorming, poetry, marketing slogans |
-| **Structured but Flexible** | Medium Temperature (~0.7), Top-P 0.8, Small Frequency Penalty (0.2–0.4) | Ensures logical flow while reducing repeated phrases. | Technical documentation, product descriptions, long-form essays |
-| **Exploratory / Idea Generator** | Temperature 1.0–1.5, Top-P ~0.95, Higher Presence Penalty (0.6–1.0) | Strong push for novelty — encourages out-of-the-box concepts. | Research ideation, design thinking sessions, new feature suggestions |
-| **Highly Deterministic** | Temperature = 0, Top-K = 1 | Model always picks the top choice. Fully reproducible, zero randomness. | Unit test generation, deterministic query responses |
-| **Conversational Naturalness** | Temperature 0.7–0.9, Top-P ~0.9, Mild Frequency Penalty (0.3–0.5) | Sounds like a human — avoids exact repetition but still flows smoothly. | Dialogue systems, teaching assistants, personal companions |
-| **Safe & Guarded** | Low Temp (0.2–0.5), Top-P 0.7–0.8, No penalties | Model sticks to mainstream, cautious answers. | Compliance-focused chatbots, corporate communications |
+| Outcome                          | Potential Combination                                                      | Description                                                                              | Example Use Case                                                     |
+|----------------------------------|----------------------------------------------------------------------------|------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
+| **Conservative & Accurate**      | Low Temperature (0.1–0.3), Small Top-K (≤20), No penalties                 | Model picks only from safest options. Predictable, focused, minimal risk of nonsense.    | Step-by-step math solutions, legal contracts, medical instructions   |
+| **Balanced Assistant**           | Medium Temperature (0.7–1.0), Top-P ~0.9, Mild penalties                   | Natural mix of predictability and creativity. Can adapt across domains without drifting. | General-purpose chatbot, customer support, Q&A with light variation  |
+| **Creative & Diverse**           | High Temperature (1.2–1.8), Large Top-K (≥100), Presence Penalty (0.5–0.8) | Model explores unusual options, introduces new ideas, avoids repetition.                 | Storytelling, brainstorming, poetry, marketing slogans               |
+| **Structured but Flexible**      | Medium Temperature (~0.7), Top-P 0.8, Small Frequency Penalty (0.2–0.4)    | Ensures logical flow while reducing repeated phrases.                                    | Technical documentation, product descriptions, long-form essays      |
+| **Exploratory / Idea Generator** | Temperature 1.0–1.5, Top-P ~0.95, Higher Presence Penalty (0.6–1.0)        | Strong push for novelty — encourages out-of-the-box concepts.                            | Research ideation, design thinking sessions, new feature suggestions |
+| **Highly Deterministic**         | Temperature = 0, Top-K = 1                                                 | Model always picks the top choice. Fully reproducible, zero randomness.                  | Unit test generation, deterministic query responses                  |
+| **Conversational Naturalness**   | Temperature 0.7–0.9, Top-P ~0.9, Mild Frequency Penalty (0.3–0.5)          | Sounds like a human — avoids exact repetition but still flows smoothly.                  | Dialogue systems, teaching assistants, personal companions           |
+| **Safe & Guarded**               | Low Temp (0.2–0.5), Top-P 0.7–0.8, No penalties                            | Model sticks to mainstream, cautious answers.                                            | Compliance-focused chatbots, corporate communications                |
 
 
 
@@ -194,13 +194,13 @@ This work reflects my personal AI learning journey and is shared for educational
 
 ### Getting Help
 
-| Support Type | Contact Method | Description |
-|--------------|----------------|-------------|
-| **Documentation** | This guide and code comments | Comprehensive usage and parameter guides |
-| **Issues** | Report bugs and feature requests | Technical problems and enhancement requests |
-| **Discussions** | Join community discussions | General questions and knowledge sharing |
-| **LinkedIn** | [Jyoti Ranjan](https://www.linkedin.com/in/jyoti-ranjan-5083595/) | Professional networking and collaboration |
-| **Email** | jranjan@gmail.com | Direct contact for detailed inquiries |
+| Support Type      | Contact Method                                                    | Description                                 |
+|-------------------|-------------------------------------------------------------------|---------------------------------------------|
+| **Documentation** | This guide and code comments                                      | Comprehensive usage and parameter guides    |
+| **Issues**        | Report bugs and feature requests                                  | Technical problems and enhancement requests |
+| **Discussions**   | Join community discussions                                        | General questions and knowledge sharing     |
+| **LinkedIn**      | [Jyoti Ranjan](https://www.linkedin.com/in/jyoti-ranjan-5083595/) | Professional networking and collaboration   |
+| **Email**         | jranjan@gmail.com                                                 | Direct contact for detailed inquiries       |
 
 ### Troubleshooting
 
