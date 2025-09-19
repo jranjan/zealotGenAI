@@ -1,10 +1,10 @@
-# 🤖 LLM Studio - Interactive LLM Testing Interface
+# LLM Studio - Interactive LLM Testing Interface
 
 # Overview
 
 LLM Studio is a comprehensive Streamlit-based web application that provides an interactive interface for testing and experimenting with different Large Language Models (LLMs) through the OpenRouter platform. Built as part of the ZealotGenAI framework, it offers advanced parameter controls and real-time model interaction capabilities.
 
-# 🚀 Features
+# Features
 
 ### Core Functionality
 
@@ -75,7 +75,7 @@ zealot/apps/llm/llmstudio/
 └── __init__.py         # Package initialization
 ```
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 - Python 3.8+
@@ -135,6 +135,7 @@ zealot/apps/llm/llmstudio/
 | **Temperature** | Controls the randomness of selection, tuning whether the model plays it safe (low temperature) or experiments more freely (high temperature) |
 | **Frequency Penalty** | Helps avoid redundancy by discouraging the model from repeating the same words too often |
 | **Presence Penalty** | Pushes for novelty, encouraging the model to introduce words or ideas that haven't appeared yet in the text |
+| **System Prompt** | System Prompt is a special instruction that sets the behavior or context for the model before any user input. |
 
 ### Parameter Tuning Ranges
 
@@ -170,9 +171,9 @@ zealot/apps/llm/llmstudio/
 
 ### System Prompt Templates
 
-Predefined AI behavior templates that set the tone, style, and expertise level for responses across professional, technical, friendly, and creative use cases.
+Predefined AI behavior templates that set the tone, style, and expertise level for responses across professional, technical, friendly, creative, and agile team use cases.
 
-The app includes predefined system prompt templates to guide the AI's behavior and response style. Choose from 15 different templates across 4 categories:
+The app includes predefined system prompt templates to guide the AI's behavior and response style. Choose from 18 different templates across 5 categories:
 
 | Category | Template | Description | Best For |
 |----------|----------|-------------|----------|
@@ -182,15 +183,18 @@ The app includes predefined system prompt templates to guide the AI's behavior a
 | | Medical Expert | Factual medical information with best practices | Healthcare advice, medical explanations |
 | **Technical / Coding** | Software Engineer | Clear code examples with logical explanations | Programming help, code reviews |
 | | Data Analyst | Data insights, trends, and recommendations | Data analysis, business intelligence |
-| | JSON Structured Output | Responses in valid JSON format | API responses, structured data |
-| | Step-by-Step Instructions | Detailed, sequential task guidance | Tutorials, procedures, how-to guides |
+| | Json Structured Output | Responses in valid JSON format | API responses, structured data |
+| | Step By Step Instructions | Detailed, sequential task guidance | Tutorials, procedures, how-to guides |
 | **Friendly / Casual** | Friendly Assistant | Simple explanations with relatable examples | General help, casual conversations |
 | | Educational Tutor | Patient explanations for learners | Teaching, educational content |
 | | Concise Advisor | Short, clear, actionable answers | Quick help, brief responses |
 | **Creative / Imaginative** | Storyteller | Imaginative narratives with vivid descriptions | Creative writing, storytelling |
-| | Poet / Lyricist | Emotional poems and lyrics with rhythm | Poetry, songwriting, creative expression |
+| | Poet Lyricist | Emotional poems and lyrics with rhythm | Poetry, songwriting, creative expression |
 | | Brainstorming Partner | Multiple creative ideas and solutions | Ideation, problem-solving, innovation |
-| | Persona-based Roleplay | Consistent character responses | Roleplay, character interactions |
+| | Persona Based Roleplay | Consistent character responses | Roleplay, character interactions |
+| **Agile Team / Members** | Product Owner | Creating and managing user stories with acceptance criteria, dependencies, and business context | Story creation, backlog management, stakeholder alignment |
+| | Scrum Master | Facilitating story creation, managing dependencies, removing impediments | Sprint planning, team facilitation, agile coaching |
+| | Team Member | Breaking down stories, defining technical acceptance criteria, implementation context | Story refinement, technical planning, development readiness |
 
 **Usage Tips:**
 - Select "Custom" to write your own system prompt
@@ -198,7 +202,7 @@ The app includes predefined system prompt templates to guide the AI's behavior a
 - Professional prompts work well with lower temperature (0.3-0.7)
 - Creative prompts benefit from higher temperature (0.8-1.2)
 
-# 🔍 Error Handling
+# Error Handling
 
 ### Common Issues
 1. **API Key Missing**: Set `OPENROUTER_API_KEY` environment variable
