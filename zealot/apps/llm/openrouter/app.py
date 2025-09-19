@@ -46,10 +46,11 @@ class OpenRouterApp(LLMApp):
             return [model.value for model in OpenRouterModel.get_all_models()]
     
     def show_model_info(self, model_name: str):
-        """Show detailed information for a specific model"""
+        """Show detailed information for a specific model in one line"""
         try:
             model = OpenRouterModel.from_string(model_name)
-            OpenRouterPrinter.print_model_info(model)
+            info = model.get_token_info()
+            print(f"Provider: OpenRouter | Model: {info['model']} | Max Input: {info['max_input_tokens_formatted']} | Max Output: {info['max_output_tokens_formatted']} | Max Total: {info['max_total_tokens_formatted']}")
         except ValueError as e:
             OpenRouterPrinter.print_error(str(e))
     
