@@ -46,14 +46,14 @@ class LLMPrinter:
         print()
     
     @staticmethod
-    def print_llm_client(client, title: str = "LLM CLIENT INFO", selected_model: str = None) -> None:
+    def print_llm_client(client, selected_model: str, title: str = "LLM CLIENT INFO") -> None:
         """
         Print LLM client information
         
         Args:
             client: LLM client instance
+            selected_model: Specific model name to highlight
             title: Optional title for the client info section
-            selected_model: Optional specific model name to highlight
         """
         if client is None:
             print("=" * 80)
@@ -73,12 +73,9 @@ class LLMPrinter:
             provider_info = client.get_provider_info()
             print(f"Provider: {provider_info['display_name']}")
             
-            # Show selected model prominently if provided
-            if selected_model:
-                print(f"Selected Model: {selected_model}")
-                print(f"Default Model: {provider_info['model']}")
-            else:
-                print(f"Model: {provider_info['model']}")
+            # Show selected model prominently
+            print(f"Selected Model: {selected_model}")
+            print(f"Default Model: {provider_info['model']}")
             
             print(f"Temperature: {provider_info['temperature']}")
             print(f"Max Tokens: {provider_info['max_tokens']}")
@@ -109,34 +106,64 @@ class LLMPrinter:
         print(f"   {message}")
     
     @staticmethod
-    def print_success(message: str, title: str = "SUCCESS") -> None:
+    def print_success(message: str, client=None, model: str = None, title: str = "SUCCESS") -> None:
         """
-        Print success message
+        Print success message with client and model information
         
         Args:
             message: Success message to display
+            client: LLM client instance (optional)
+            model: Model name used (optional)
             title: Optional title for the success section
         """
         print("=" * 80)
         print(f"✅ {title}")
         print("=" * 80)
-        print(f"{message}")
+        
+        # Add client and model information to the message if provided
+        if client and model:
+            try:
+                provider_info = client.get_provider_info()
+                print(f"{message} | Provider: {provider_info['display_name']} | Model: {model}")
+            except Exception:
+                # Fallback if client info is not available
+                print(f"{message} | Model: {model}")
+        elif model:
+            print(f"{message} | Model: {model}")
+        else:
+            print(f"{message}")
+        
         print("=" * 80)
         print()
 
     @staticmethod
-    def print_error(error: str, title: str = "ERROR") -> None:
+    def print_error(error: str, title: str = "ERROR", client=None, model: str = None) -> None:
         """
-        Print error message
+        Print error message with client and model information
         
         Args:
             error: Error message to display
             title: Optional title for the error section
+            client: LLM client instance (optional)
+            model: Model name used (optional)
         """
         print("=" * 80)
         print(f"❌ {title}")
         print("=" * 80)
-        print(f"Error: {error}")
+        
+        # Add client and model information to the error message if provided
+        if client and model:
+            try:
+                provider_info = client.get_provider_info()
+                print(f"Error: {error} | Provider: {provider_info['display_name']} | Model: {model}")
+            except Exception:
+                # Fallback if client info is not available
+                print(f"Error: {error} | Model: {model}")
+        elif model:
+            print(f"Error: {error} | Model: {model}")
+        else:
+            print(f"Error: {error}")
+        
         print("=" * 80)
         print()
     
