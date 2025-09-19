@@ -19,6 +19,7 @@ from zealot.utils.llm_client import LLMProvider, create_llm_client
 from zealot.utils.llm_client.clients.openrouter import OpenRouterModel
 from zealot.apps.common.app.llm import LLMApp
 from zealot.utils.streamlit.copyright_footer import render_llm_studio_footer, render_app_header
+from zealot.utils.prompt import SystemPrompt
 
 
 @dataclass
@@ -220,12 +221,33 @@ class LLMStudioApp(LLMApp):
         """Render additional parameter controls"""
         st.subheader("📝 Additional Parameters")
         
-        return st.text_area(
-            "System Prompt (Optional)",
-            value="",
-            height=100,
-            help="Optional system prompt to set the context"
+        # System prompt template selection
+        prompt_options = SystemPrompt.get_display_options()
+        options = SystemPrompt.get_streamlit_selectbox_options()
+        selected_prompt_key = st.selectbox(
+            "System Prompt Template",
+            options=options,
+            index=0,
+            help="Choose a predefined system prompt template or select 'Custom' for manual input"
         )
+        
+        # Get the selected prompt
+        if selected_prompt_key and selected_prompt_key != "Custom":
+            selected_prompt = prompt_options[selected_prompt_key]
+            default_prompt = selected_prompt.prompt
+            st.info(f"📋 **{selected_prompt.name}** ({selected_prompt.category})")
+        else:
+            default_prompt = ""
+        
+        # Allow custom system prompt input
+        custom_prompt = st.text_area(
+            "Custom System Prompt",
+            value=default_prompt,
+            height=100,
+            help="Modify the selected template or enter a custom system prompt"
+        )
+        
+        return custom_prompt
     
     def _check_api_key(self) -> str:
         """Check for OpenRouter API key in environment variables"""
