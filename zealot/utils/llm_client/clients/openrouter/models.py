@@ -28,22 +28,25 @@ class OpenRouterModel(Enum):
     # OpenAI
     GPT_4O = ("openai/gpt-4o", ModelLimits(128000, 16384, 128000))
     GPT_4O_MINI = ("openai/gpt-4o-mini", ModelLimits(128000, 16384, 128000))
+    GPT_3_5_TURBO = ("openai/gpt-3.5-turbo", ModelLimits(16385, 4096, 16385))
     
     # Anthropic
     CLAUDE_3_5_SONNET = ("anthropic/claude-3.5-sonnet", ModelLimits(200000, 8192, 200000))
     CLAUDE_3_HAIKU = ("anthropic/claude-3-haiku", ModelLimits(200000, 4096, 200000))
     
     # Google
-    GEMINI_PRO = ("google/gemini-2.5-flash", ModelLimits(30720, 2048, 30720))
+    GEMINI_PRO = ("google/gemini-2.5-flash", ModelLimits(1000000, 8192, 1000000))
     
     # Cohere
-    COHERE_COMMAND = ("cohere/command-a", ModelLimits(4096, 1024, 4096))
+    COHERE_COMMAND = ("cohere/command-a", ModelLimits(128000, 4096, 128000))
+    COHERE_COMMAND_LIGHT = ("cohere/command-light", ModelLimits(128000, 4096, 128000))
+    COHERE_COMMAND_NIGHTLY = ("cohere/command-nightly", ModelLimits(128000, 4096, 128000))
     
     # Meta
     LLAMA_3_1_8B_INSTRUCT = ("meta-llama/llama-3.1-8b-instruct", ModelLimits(128000, 8192, 128000))
     
     # Mistral
-    MISTRAL_7B_INSTRUCT = ("mistralai/mistral-nemo", ModelLimits(32768, 8192, 32768))
+    MISTRAL_7B_INSTRUCT = ("mistralai/mistral-nemo", ModelLimits(128000, 8192, 128000))
     
     def __init__(self, model_name: str, limits: ModelLimits):
         self.model_name = model_name
@@ -95,7 +98,7 @@ class OpenRouterModel(Enum):
         """Get models for a provider"""
         provider = provider.lower()
         providers = {
-            "openai": [cls.GPT_4O, cls.GPT_4O_MINI],
+            "openai": [cls.GPT_4O, cls.GPT_4O_MINI, cls.GPT_3_5_TURBO],
             "anthropic": [cls.CLAUDE_3_5_SONNET, cls.CLAUDE_3_HAIKU],
             "google": [cls.GEMINI_PRO],
             "cohere": [cls.COHERE_COMMAND, cls.COHERE_COMMAND_LIGHT, cls.COHERE_COMMAND_NIGHTLY],
