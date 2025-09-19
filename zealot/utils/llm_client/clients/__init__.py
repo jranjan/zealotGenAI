@@ -8,11 +8,13 @@ from .cohere import CohereClient
 from .openai import OpenAIClient
 from .anthropic import AnthropicClient
 from .google import GoogleClient
+from .openrouter import OpenRouterClient
 
 __all__ = [
     'BaseLLMClient',
     'CohereClient', 
     'OpenAIClient',
     'AnthropicClient',
-    'GoogleClient'
+    'GoogleClient',
+    'OpenRouterClient'
 ]

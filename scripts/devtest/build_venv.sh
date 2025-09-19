@@ -33,7 +33,7 @@ set -e  # Exit on any error
 
 # Get the script directory and project root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+PROJECT_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
 ALPHA_DIR="$PROJECT_ROOT/alpha"
 
 # =============================================================================
@@ -48,7 +48,9 @@ auto_detect_path() {
     
     # Common patterns to check
     local patterns=(
+        "zealot/apps/llm/$app_name"
         "zealot/apps/$app_name"
+        "apps/llm/$app_name"
         "apps/$app_name"
         "$app_name"
     )
@@ -152,7 +154,7 @@ if [ -z "$APP_PATH" ]; then
     else
         echo "❌ Error: Could not auto-detect path for '$APP_NAME'"
         echo "Please provide explicit path: $0 $APP_NAME <app_path>"
-        echo "Common patterns checked: zealot/apps/$APP_NAME, apps/$APP_NAME, $APP_NAME"
+        echo "Common patterns checked: zealot/apps/llm/$APP_NAME, zealot/apps/$APP_NAME, apps/llm/$APP_NAME, apps/$APP_NAME, $APP_NAME"
         exit 1
     fi
 fi
