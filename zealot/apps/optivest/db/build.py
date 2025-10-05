@@ -5,7 +5,7 @@ from sentence_transformers import SentenceTransformer
 from yaspin import yaspin
 from yaspin.spinners import Spinners
 
-class ExchangeVectorDB:
+class TickerVectorDB:
     def __init__(self, model_name="sentence-transformers/all-MiniLM-L6-v2",
                  vector_dim=384, n_trees=50, rebuild=False):
         """
@@ -110,7 +110,7 @@ class ExchangeVectorDB:
 
 
 if __name__ == "__main__":
-    db = ExchangeVectorDB(rebuild=True, n_trees=50)
+    db = TickerVectorDB(rebuild=True, n_trees=50)
 
     print("\n🚀 Building vector DB from local CSV files...")
     combined_df = db.build_vector_db(
