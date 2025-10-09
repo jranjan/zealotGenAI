@@ -1,0 +1,21 @@
+assets:
+  - name: Server
+    source_id: /Users/jyoti.ranjan/Downloads/assets/servers
+    result_id: /Users/jyoti.ranjan/Downloads/assets/anlysis/servers
+    asset_fields:
+      - id
+      - name
+      - identifier
+      - assetClass
+      - mbu
+      - public_ip_address
+      - fqdn
+      - provision_status
+      - os_version
+      - serial_number
+      - mac_address
+      - substrate
+    cloud_fields:
+      - parentCloud
+      - cloud
+      - team
