@@ -173,7 +173,7 @@ The app automatically uses parameters from `openrouter.json` for all models:
 The client automatically loads available models from the `OpenRouterModel` enum:
 
 ```python
-# Get available models from configuration
+# Get the available models from configuration
 client = create_llm_client(LLMProvider.OPENROUTER)
 models = client.get_available_models()
 # Returns: ['openai/gpt-4o', 'cohere/command', 'anthropic/claude-3.5-sonnet', ...]

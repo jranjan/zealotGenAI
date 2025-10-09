@@ -101,7 +101,7 @@ from zealot.utils.llm_client import LLMProvider
 # Create app instance
 app = LLMHelloApp(LLMProvider.COHERE, "My Hello App")
 
-# Run with custom message
+# Run with custom message(s)
 response = app.run("How can I learn Python programming?")
 
 # The app automatically adds "Hello!" prefix to messages
