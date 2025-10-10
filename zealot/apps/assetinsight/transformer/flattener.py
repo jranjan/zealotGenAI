@@ -223,30 +223,24 @@ class Flattener(Transformer):
         mappings = []
         
         for source_asset, flattened_asset in zip(source_assets, flattened_assets):
-            original_keys = self._get_all_keys_with_values(source_asset)
+            # Get all flattened keys with their values
             flattened_keys = self._get_all_keys_with_values(flattened_asset)
             
-            for orig_key, (orig_value, orig_type) in original_keys.items():
-                if orig_key in flattened_keys:
-                    flat_value = flattened_keys[orig_key]
-                    if orig_value == flat_value or (orig_type in ["object", "array"] and str(orig_value) == str(flat_value)):
-                        mappings.append({
-                            'original_key': orig_key,
-                            'flattened_key': orig_key,
-                            'value': str(orig_value)[:100] + ('...' if len(str(orig_value)) > 100 else ''),
-                            'type': orig_type
-                        })
-                        continue
+            # For each flattened key, find its corresponding original key
+            for flat_key, (flat_value, flat_type) in flattened_keys.items():
+                original_key = self._find_original_key_for_flattened(source_asset, flat_key)
                 
-                for flat_key, flat_value in flattened_keys.items():
-                    if self._is_key_equivalent(orig_key, flat_key, orig_value, flat_value):
-                        mappings.append({
-                            'original_key': orig_key,
-                            'flattened_key': flat_key,
-                            'value': str(orig_value)[:100] + ('...' if len(str(orig_value)) > 100 else ''),
-                            'type': orig_type
-                        })
-                        break
+                if original_key:
+                    # Get the original value
+                    orig_value = self._get_nested_value(source_asset, original_key)
+                    orig_type = self._get_value_type(orig_value)
+                    
+                    mappings.append({
+                        'original_key': original_key,
+                        'flattened_key': flat_key,
+                        'value': str(orig_value)[:100] + ('...' if len(str(orig_value)) > 100 else ''),
+                        'type': orig_type
+                    })
         
         return mappings
     
@@ -294,3 +288,65 @@ class Flattener(Transformer):
             return orig_value == flat_value
         
         return False
+    
+    def _find_original_key_for_flattened(self, source_data: Dict, flattened_key: str) -> str:
+        """Find the original nested key path for a flattened key"""
+        # Handle array indices in flattened keys
+        if '[' in flattened_key and ']' in flattened_key:
+            # Extract the base key and array parts
+            parts = flattened_key.split('[')
+            base_key = parts[0]
+            array_parts = []
+            for part in parts[1:]:
+                if ']' in part:
+                    array_parts.append(part.split(']')[0])
+            
+            # Reconstruct the original key path
+            original_parts = base_key.split('.')
+            result_parts = []
+            
+            for i, part in enumerate(original_parts):
+                result_parts.append(part)
+                if i < len(array_parts):
+                    result_parts.append(f"[{array_parts[i]}]")
+            
+            return '.'.join(result_parts)
+        else:
+            # Simple dot notation key
+            return flattened_key
+    
+    def _get_nested_value(self, data: Dict, key_path: str) -> Any:
+        """Get a value from nested dictionary using dot notation key path"""
+        try:
+            keys = key_path.split('.')
+            current = data
+            
+            for key in keys:
+                if '[' in key and ']' in key:
+                    # Handle array access
+                    base_key = key.split('[')[0]
+                    index = int(key.split('[')[1].split(']')[0])
+                    current = current[base_key][index]
+                else:
+                    current = current[key]
+            
+            return current
+        except (KeyError, IndexError, TypeError):
+            return None
+    
+    def _get_value_type(self, value: Any) -> str:
+        """Get the type of a value for display purposes"""
+        if isinstance(value, dict):
+            return "object"
+        elif isinstance(value, list):
+            return "array"
+        elif isinstance(value, str):
+            return "string"
+        elif isinstance(value, (int, float)):
+            return "number"
+        elif isinstance(value, bool):
+            return "boolean"
+        elif value is None:
+            return "null"
+        else:
+            return "value"

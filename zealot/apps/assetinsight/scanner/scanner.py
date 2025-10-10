@@ -1,5 +1,5 @@
 """
-Source Scanner - Concrete implementation for source data inspection
+Scanner - Concrete implementation for source data inspection
 """
 
 import json
@@ -67,7 +67,8 @@ class SourceScanner(Scanner):
                 'total_files': 0,
                 'estimated_assets': 0,
                 'source_folder': directory_path,
-                'file_details': []
+                'file_details': [],
+                'asset_classes': []
             }
         
         try:
@@ -80,36 +81,66 @@ class SourceScanner(Scanner):
                     'total_files': 0,
                     'estimated_assets': 0,
                     'source_folder': directory_path,
-                    'file_details': []
+                    'file_details': [],
+                    'asset_classes': []
                 }
             
             total_assets = 0
             file_details = []
+            all_asset_classes = set()
             
             for json_file in json_files:
                 try:
                     file_size = json_file.stat().st_size
                     file_size_mb = file_size / (1024 * 1024)
                     
-                    # Count assets in file
+                    # Count assets in file and extract asset classes
                     with open(json_file, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                     
                     if isinstance(data, list):
                         asset_count = len(data)
+                        # Extract asset classes from each asset
+                        file_asset_classes = set()
+                        for asset in data:
+                            if isinstance(asset, dict) and 'assetClass' in asset:
+                                asset_class = asset['assetClass']
+                                if asset_class:
+                                    file_asset_classes.add(asset_class)
+                                    all_asset_classes.add(asset_class)
                     else:
                         asset_count = 1
+                        # Single asset object
+                        if isinstance(data, dict) and 'assetClass' in data:
+                            asset_class = data['assetClass']
+                            if asset_class:
+                                file_asset_classes = {asset_class}
+                                all_asset_classes.add(asset_class)
+                            else:
+                                file_asset_classes = set()
+                        else:
+                            file_asset_classes = set()
                     
                     total_assets += asset_count
+                    
+                    # Format asset classes for display
+                    asset_classes_display = ', '.join(sorted(file_asset_classes)) if file_asset_classes else 'Unknown'
                     
                     file_details.append({
                         'File': json_file.name,
                         'Size (MB)': file_size_mb,
-                        'Assets': asset_count
+                        'Assets': asset_count,
+                        'Asset Classes': asset_classes_display
                     })
                     
                 except Exception as e:
                     print(f"Warning: Could not process {json_file.name}: {e}")
+                    file_details.append({
+                        'File': json_file.name,
+                        'Size (MB)': 0,
+                        'Assets': 0,
+                        'Asset Classes': 'Error'
+                    })
                     continue
             
             return {
@@ -117,7 +148,8 @@ class SourceScanner(Scanner):
                 'total_files': len(json_files),
                 'estimated_assets': total_assets,
                 'source_folder': directory_path,
-                'file_details': file_details
+                'file_details': file_details,
+                'asset_classes': sorted(list(all_asset_classes))
             }
             
         except Exception as e:
@@ -127,5 +159,6 @@ class SourceScanner(Scanner):
                 'total_files': 0,
                 'estimated_assets': 0,
                 'source_folder': directory_path,
-                'file_details': []
+                'file_details': [],
+                'asset_classes': []
             }

@@ -19,9 +19,10 @@ def main():
     parser = argparse.ArgumentParser(description="Transform JSON data by flattening nested structures")
     parser.add_argument("source_folder", help="Path to source directory containing JSON files")
     parser.add_argument("target_folder", help="Path to target directory for transformed files")
-    parser.add_argument("--transformer", choices=["flattener", "zepto_flattener"], 
-                       default="flattener", help="Type of transformer to use")
-    parser.add_argument("--max-workers", type=int, help="Maximum number of worker threads (for zepto_flattener)")
+    parser.add_argument("--transformer", choices=["flattener", "sonic_flattener", "supersonic_flattener"], 
+                       default="supersonic_flattener", help="Type of transformer to use")
+    parser.add_argument("--max-workers", type=int, help="Maximum number of worker processes (for sonic_flattener and supersonic_flattener)")
+    parser.add_argument("--chunk-size", type=int, default=100, help="Number of files to process per chunk (for supersonic_flattener)")
     parser.add_argument("--analyze-keys", action="store_true", help="Analyze and display flattened keys")
     
     args = parser.parse_args()
@@ -36,6 +37,8 @@ def main():
     kwargs = {}
     if args.max_workers:
         kwargs['max_workers'] = args.max_workers
+    if args.chunk_size:
+        kwargs['chunk_size'] = args.chunk_size
     if args.analyze_keys:
         kwargs['analyze_keys'] = True
     

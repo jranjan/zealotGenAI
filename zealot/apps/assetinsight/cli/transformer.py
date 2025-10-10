@@ -4,8 +4,12 @@ Transformer CLI - Command line interface for data transformation
 
 import sys
 from pathlib import Path
-from transformer.flattener import Flattener
-from transformer.zeptoflattener import ZeptoFlattener
+
+# Add the parent directory to Python path for imports
+current_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(current_dir))
+
+from transformer import TransformerFactory, TransformerType
 
 
 class TransformerCLI:
@@ -14,31 +18,41 @@ class TransformerCLI:
     def __init__(self):
         self.transformer = None
     
-    def run_transformation(self, source_folder: str, target_folder: str, transformer_type: str = "flattener", **kwargs) -> None:
+    def run_transformation(self, source_folder: str, target_folder: str, transformer_type: str = "supersonic_flattener", **kwargs) -> None:
         """
         Run data transformation.
         
         Args:
             source_folder: Path to source directory containing JSON files
             target_folder: Path to target directory for transformed files
-            transformer_type: Type of transformer to use ("flattener" or "zepto_flattener")
+            transformer_type: Type of transformer to use ("flattener", "sonic_flattener", or "supersonic_flattener")
             **kwargs: Additional arguments for transformer initialization
         """
         try:
-            # Create transformer based on type
-            if transformer_type == "flattener":
-                self.transformer = Flattener()
-            elif transformer_type == "zepto_flattener":
-                max_workers = kwargs.get('max_workers', None)
-                self.transformer = ZeptoFlattener(max_workers=max_workers)
-            else:
+            # Create transformer using factory pattern
+            transformer_type_map = {
+                "flattener": TransformerType.FLATTENER,
+                "sonic_flattener": TransformerType.SONIC_FLATTENER,
+                "supersonic_flattener": TransformerType.SUPERSONIC_FLATTENER
+            }
+            
+            if transformer_type not in transformer_type_map:
                 print(f"❌ Error: Unknown transformer type: {transformer_type}")
+                print(f"Available types: {', '.join(transformer_type_map.keys())}")
                 sys.exit(1)
+            
+            # Use factory to create transformer
+            self.transformer = TransformerFactory.create_transformer(
+                transformer_type_map[transformer_type], 
+                **kwargs
+            )
             
             print(f"🔧 Transforming data from: {source_folder}")
             print(f"📁 Output directory: {target_folder}")
             print(f"🔧 Using transformer: {type(self.transformer).__name__}")
             print()
+            
+            # Note: No automatic cleanup - timestamped directories keep things organized
             
             # Transform directory
             result = self.transformer.transform_directory(source_folder, target_folder)

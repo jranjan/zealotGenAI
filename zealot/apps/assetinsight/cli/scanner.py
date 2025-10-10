@@ -4,16 +4,33 @@ Scanner CLI - Command line interface for source data scanning
 
 import sys
 from pathlib import Path
-from scanner.source import SourceScanner
+
+# Add the parent directory to Python path for imports
+current_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(current_dir))
+
+from scanner import ScannerFactory, ScannerType
 from .sdk.base import BaseCLI
 
 
 class ScannerCLI(BaseCLI):
     """CLI class for source data scanning operations"""
     
-    def __init__(self):
+    def __init__(self, scanner_type: str = "supersonic_source_scanner", **kwargs):
         super().__init__()
-        self.processor = SourceScanner()
+        # Create scanner using factory pattern
+        scanner_type_map = {
+            "source": ScannerType.SOURCE,
+            "supersonic_source_scanner": ScannerType.SUPERSONIC_SOURCE_SCANNER
+        }
+        
+        if scanner_type not in scanner_type_map:
+            raise ValueError(f"Unknown scanner type: {scanner_type}")
+        
+        self.processor = ScannerFactory.create_scanner(
+            scanner_type_map[scanner_type], 
+            **kwargs
+        )
     
     def run_operation(self, source_folder: str) -> None:
         """

@@ -5,6 +5,7 @@ Normaliser Tab - Handles data normalisation/flattening
 import streamlit as st
 import os
 import json
+import multiprocessing
 from pathlib import Path
 import pandas as pd
 import sys
@@ -14,7 +15,7 @@ from collections import defaultdict
 current_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(current_dir))
 
-from transformer import Flattener
+from transformer import TransformerFactory, TransformerType
 from .base import BaseTab
 
 
@@ -26,7 +27,12 @@ class NormaliserTab(BaseTab):
             tab_name="🔧 Normaliser",
             description=""
         )
-        self.transformer = Flattener()
+        # Use factory to create SupersonicFlattener for maximum performance (multiprocessing)
+        self.transformer = TransformerFactory.create_transformer(
+            TransformerType.SUPERSONIC_FLATTENER,
+            max_workers=min(8, multiprocessing.cpu_count()),  # Optimized for multiprocessing
+            chunk_size=20  # Smaller chunks for better memory management
+        )
     
     def _check_prerequisites(self, workflow_state):
         """Check if source stage is complete"""
@@ -48,13 +54,25 @@ class NormaliserTab(BaseTab):
     def _render_target_selection(self, workflow_state):
         """Render target directory selection UI"""
         source_data = self._get_workflow_state_value('source_data', {})
-        st.info(f"**Source:** `{source_data.get('source_folder', 'Unknown')}`")
+        source_folder = source_data.get('source_folder', '')
+        st.info(f"**Source:** `{source_folder if source_folder else 'Unknown'}`")
         
-        # Target directory input
+        # Show a placeholder path that will be generated dynamically
+        project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve()
+        
+        if source_folder and Path(source_folder).exists():
+            source_path = Path(source_folder).resolve()
+            placeholder_path = str(source_path.parent / f"{source_path.name}_flattened_<timestamp>")
+        else:
+            placeholder_path = str(project_root / "output" / "flattened_<timestamp>")
+        
+        st.info(f"**Output will be created at:** `{placeholder_path}`")
+        
+        # Target directory input (optional override)
         self.target_folder = st.text_input(
-            "Enter output directory path:",
-            value=f"{source_data.get('source_folder', '')}_flattened",
-            help="Where flattened files will be saved",
+            "Override output directory path (optional):",
+            value="",
+            help="Leave empty to auto-generate timestamped directory, or specify custom path",
             key="target_folder_input"
         )
     
@@ -87,9 +105,13 @@ class NormaliserTab(BaseTab):
         
         for output_file in output_files:
             # Extract original filename from flattened filename
-            # Format: originalname_flattened.json
-            original_name = output_file.stem.replace('_flattened', '')
-            display_name = f"{original_name} (flattened: {output_file.name})"
+            # Handle both formats: "originalname_flattened.json" and "flattened_originalname.json"
+            if output_file.stem.startswith('flattened_'):
+                original_name = output_file.stem.replace('flattened_', '')
+            else:
+                original_name = output_file.stem.replace('_flattened', '')
+            
+            display_name = f"{original_name} → {output_file.name}"
             file_options.append(display_name)
             file_mapping[display_name] = output_file.name
         
@@ -231,20 +253,69 @@ class NormaliserTab(BaseTab):
         else:
             st.info("No key mappings found for this asset")
     
-    
-    
     def _normalise_data(self):
         """Normalise data and update workflow state"""
         source_data = self._get_workflow_state_value('source_data', {})
         source_folder = source_data.get('source_folder', '')
         
-        if not self.target_folder:
-            self._render_error_message("Please provide a target folder path")
+        # Generate fresh timestamp for this run
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
+        
+        # Get the project root directory (independent of where script is run from)
+        project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve()
+        
+        # Use custom target folder if provided, otherwise generate timestamped path
+        if self.target_folder and self.target_folder.strip():
+            target_folder = self.target_folder.strip()
+            # If relative path, make it relative to project root
+            if not Path(target_folder).is_absolute():
+                target_folder = str(project_root / target_folder)
+        else:
+            # Auto-generate path - use source directory with _flattened_timestamp suffix
+            if source_folder and Path(source_folder).exists():
+                source_path = Path(source_folder).resolve()
+                target_folder = str(source_path.parent / f"{source_path.name}_flattened_{timestamp}")
+            else:
+                # Fallback to project root if no source folder
+                target_folder = str(project_root / "output" / f"flattened_{timestamp}")
+        
+        # Update the target folder for display
+        self.target_folder = target_folder
+        
+        # Prevent creating files in the current directory or assetinsight directory
+        target_path = Path(target_folder).resolve()
+        
+        # Get the actual assetinsight directory (where this file is located)
+        assetinsight_dir = Path(__file__).parent.parent.parent.resolve()
+        
+        # Check if target is the assetinsight directory or inside assetinsight
+        if (target_path == assetinsight_dir or 
+            target_path.is_relative_to(assetinsight_dir)):
+            self._render_error_message("❌ Cannot create files in the assetinsight directory. Please specify a proper output directory.")
             return
         
+        # Note: No automatic cleanup - timestamped directories keep things organized
+        
         try:
+            # Create a progress container for better feedback
+            progress_container = st.container()
+            with progress_container:
+                st.info("🔧 Starting data normalisation...")
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+            
             with st.spinner("🔧 Normalising data..."):
-                result = self.transformer.transform_directory(source_folder, self.target_folder)
+                # Update status
+                status_text.text("🔄 Processing files with optimized multiprocessing...")
+                progress_bar.progress(0.1)
+                
+                result = self.transformer.transform_directory(source_folder, target_folder)
+                
+                # Update progress
+                progress_bar.progress(0.9)
+                status_text.text("✅ Normalisation complete!")
+                progress_bar.progress(1.0)
                 
                 if 'error' in result:
                     self._render_error_message(f"Error: {result['error']}")
@@ -252,7 +323,7 @@ class NormaliserTab(BaseTab):
                     # Update workflow state
                     self._update_workflow_state({
                         'normalised_data': {
-                            'target_folder': self.target_folder,
+                            'target_folder': target_folder,
                             'total_files': result['total_files'],
                             'successful': result['successful'],
                             'failed': result['failed'],
@@ -279,10 +350,14 @@ class NormaliserTab(BaseTab):
         # Key metrics
         success_rate = (normalised_data['successful'] / normalised_data['total_files'] * 100) if normalised_data['total_files'] > 0 else 0
         
+        # Calculate total assets from all files
+        total_assets = sum(file_info.get('source_assets', 0) for file_info in normalised_data.get('files', []))
+        
         metrics = {
             "📁 Files Processed": normalised_data['total_files'],
             "✅ Successful": normalised_data['successful'],
             "❌ Failed": normalised_data['failed'],
+            "📊 Total Assets": f"{total_assets:,}",
             "📈 Success Rate": f"{success_rate:.1f}%"
         }
         self._render_metrics(metrics)

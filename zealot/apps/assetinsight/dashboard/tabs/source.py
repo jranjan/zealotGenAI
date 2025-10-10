@@ -13,7 +13,7 @@ import sys
 current_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(current_dir))
 
-from scanner import SourceScanner
+from scanner import ScannerFactory, ScannerType
 from .base import BaseTab
 
 
@@ -25,7 +25,8 @@ class SourceTab(BaseTab):
             tab_name="📁 Source",
             description=""
         )
-        self.source_scanner = SourceScanner()
+        # Use factory to create SupersonicSourceScanner for maximum performance with large directories
+        self.source_scanner = ScannerFactory.create_scanner(ScannerType.SUPERSONIC_SOURCE_SCANNER)
     
     def _check_prerequisites(self, workflow_state):
         """Source tab has no prerequisites"""
