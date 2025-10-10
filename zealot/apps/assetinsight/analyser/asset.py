@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Union
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
+from abc import ABC, abstractmethod
 
 
 @dataclass
@@ -24,9 +25,9 @@ class AssetClassResult:
     processing_stats: Dict[str, Any]
 
 
-class AssetAnalyser:
+class AssetAnalyser(ABC):
     """
-    Generic asset analyser that processes asset data from directories.
+    Abstract base class for asset analysers that process asset data from directories.
     
     This class processes asset data from source directories and creates
     organized results in the specified result directory. The caller
@@ -38,6 +39,21 @@ class AssetAnalyser:
         Initialize the asset analyser.
         """
         self.results: List[AssetClassResult] = []
+    
+    @abstractmethod
+    def analyse_with_config(self, config, source_directory: str, result_directory: str) -> Dict[str, Any]:
+        """
+        Analyze assets using configuration.
+        
+        Args:
+            config: Configuration object
+            source_directory: Path to source directory
+            result_directory: Path to result directory
+            
+        Returns:
+            Analysis results dictionary
+        """
+        pass
     
     def _create_simplified_asset(self, asset: Dict[str, Any], asset_fields: List[str], cloud_fields: List[str] = None) -> Dict[str, Any]:
         """
