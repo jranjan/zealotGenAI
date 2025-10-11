@@ -3,8 +3,9 @@ OpenRouter Printer
 Specialized printing utilities for OpenRouter applications
 """
 
-from typing import List, Dict, Any, Optional
-from zealot.utils.llm_client.clients.openrouter import OpenRouterModel
+from typing import List
+
+from zealot.common.clients import OpenRouterModel
 
 
 class OpenRouterPrinter:

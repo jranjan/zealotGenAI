@@ -1,5 +1,7 @@
 """
-Common utilities and base classes
+Common app base classes
 """
 
-from .llm_app import LLMApp
+from .app import App, LLMApp, LangchainApp
+
+__all__ = ['App', 'LLMApp', 'LangchainApp']

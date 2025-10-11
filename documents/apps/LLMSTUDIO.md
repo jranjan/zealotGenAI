@@ -2,24 +2,24 @@
 
 # Overview
 
-LLM Studio is a comprehensive Streamlit-based web application that provides an interactive interface for testing and experimenting with different Large Language Models (LLMs) through the OpenRouter platform. Built as part of the ZealotGenAI framework, it offers advanced parameter controls and real-time model interaction capabilities.
+LLM Studio is a comprehensive Streamlit-based web application that provides an interactive interface for testing and experimenting with different Large Language Models (LLMs) through the OpenRouter platform. Built as part of the ZealotGenAI framework, it uses the new minimal LLM client architecture and offers advanced parameter controls and real-time model interaction capabilities.
 
 # Features
 
 ### Core Functionality
 
-| Feature                      | Description                                    |
-|------------------------------|------------------------------------------------|
-| **Multi-Model Support**      | Access to all OpenRouter-supported models      |
-| **Interactive UI**           | User-friendly Streamlit interface              |
-| **Real-time Generation**     | Live LLM response generation                   |
-| **Advanced Parameters**      | Fine-tune model behavior with multiple knobs   |
-| **Model Information**        | Detailed token limits and capabilities display |
-| **Configuration Management** | Environment-based API key handling             |
+| Feature                       | Description                                             |
+|:------------------------------|:--------------------------------------------------------|
+| **Model Catalog Integration** | Uses LLMModelCatalog for comprehensive model management |
+| **Interactive UI**            | User-friendly Streamlit interface                       |
+| **Real-time Generation**      | Live LLM response generation                            |
+| **Advanced Parameters**       | Fine-tune model behavior with multiple knobs            |
+| **Model Information**         | Detailed token limits and capabilities display          |
+| **Configuration Management**  | Environment-based API key handling with manual fallback |
 
 ### Advanced Parameter Controls
 | Parameter             | Range       | Description                                     |
-|-----------------------|-------------|-------------------------------------------------|
+|:----------------------|:------------|:------------------------------------------------|
 | **Temperature**       | 0.0-2.0     | Controls response randomness and creativity     |
 | **Max Tokens**        | 1-100,000   | Limits response length with model-specific caps |
 | **Top-K**             | 1-100       | Fixed shortlist of most likely tokens           |
@@ -42,12 +42,13 @@ LLMApp (Base Class)
 - **Inherits from**: `LLMApp` (zealot framework base class)
 - **Provider**: OpenRouter (hardcoded)
 - **Purpose**: Main application logic and UI rendering
+- **Architecture**: Uses new minimal LLM client architecture
 
 #### 2. **ModelConfig Dataclass**
 ```python
 @dataclass
 class ModelConfig:
-    provider: LLMProvider
+    provider: str  # Updated to use string instead of enum
     model: str
     temperature: float
     max_tokens: int
@@ -72,11 +73,13 @@ class AppConfig:
 ## 📁 File Structure
 
 ```
-zealot/apps/llm/llmstudio/
+zealot/apps/llmstudio/
 ├── app.py              # Main Streamlit application
-├── runapp.py           # Application runner script
-├── requirements.txt    # Python dependencies
-└── __init__.py         # Package initialization
+├── __init__.py         # Package initialization
+└── requirements.txt    # Python dependencies
+
+documents/apps/
+└── LLMSTUDIO.md        # This documentation
 ```
 
 ## Installation & Setup
@@ -90,7 +93,7 @@ zealot/apps/llm/llmstudio/
 
 1. **Navigate to the project directory**:
    ```bash
-   cd /path/to/zealotGenAI/zealot/apps/llm/llmstudio
+   cd /path/to/zealotGenAI/zealot/apps/llmstudio
    ```
 
 2. **Set up virtual environment**:
@@ -111,7 +114,11 @@ zealot/apps/llm/llmstudio/
 
 5. **Run the application**:
    ```bash
-   python runapp.py
+   # Using module execution
+   python -m zealot.apps.llmstudio
+   
+   # Or using Streamlit directly
+   streamlit run zealot/apps/llmstudio/app.py
    ```
 
 6. **Access the app**:
@@ -121,8 +128,8 @@ zealot/apps/llm/llmstudio/
 
 ### Basic Workflow
 
-1. **Launch the App**: Run `python runapp.py`
-2. **Select Model**: Choose from OpenRouter model dropdown
+1. **Launch the App**: Run `python -m zealot.apps.llmstudio` or `streamlit run zealot/apps/llmstudio/app.py`
+2. **Select Model**: Choose from OpenRouter model dropdown (uses LLMModelCatalog)
 3. **Configure Parameters**: Adjust temperature, tokens, and advanced settings
 4. **Enter Prompt**: Type your question or prompt
 5. **Generate Response**: Click "🚀 Generate Response" button
@@ -132,46 +139,46 @@ zealot/apps/llm/llmstudio/
 
 ### Parameter Reference Table
 
-| Parameter | Description |
-|-----------|-------------|
-| **Top-K** | Defines a fixed shortlist of the most likely tokens, preventing the model from wandering too far into low-probability options |
+| Parameter                    | Description                                                                                                                                                        |
+|:-----------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Top-K**                    | Defines a fixed shortlist of the most likely tokens, preventing the model from wandering too far into low-probability options                                      |
 | **Top-P (Nucleus Sampling)** | Creates a probability-based shortlist that adapts dynamically to context, ensuring the model considers just enough options to stay fluent while remaining flexible |
-| **Temperature** | Controls the randomness of selection, tuning whether the model plays it safe (low temperature) or experiments more freely (high temperature) |
-| **Frequency Penalty** | Helps avoid redundancy by discouraging the model from repeating the same words too often |
-| **Presence Penalty** | Pushes for novelty, encouraging the model to introduce words or ideas that haven't appeared yet in the text |
-| **System Prompt** | System Prompt is a special instruction that sets the behavior or context for the model before any user input. |
+| **Temperature**              | Controls the randomness of selection, tuning whether the model plays it safe (low temperature) or experiments more freely (high temperature)                       |
+| **Frequency Penalty**        | Helps avoid redundancy by discouraging the model from repeating the same words too often                                                                           |
+| **Presence Penalty**         | Pushes for novelty, encouraging the model to introduce words or ideas that haven't appeared yet in the text                                                        |
+| **System Prompt**            | System Prompt is a special instruction that sets the behavior or context for the model before any user input.                                                      |
 
 ### Parameter Tuning Ranges
 
-| Parameter | Range | Effect | Recommendation |
-|-----------|-------|--------|----------------|
-| **Temperature** | 0.0-0.3 | Very focused, deterministic responses | For precise, factual content |
-| | 0.4-0.7 | Balanced creativity and coherence | **Recommended for most use cases** |
-| | 0.8-1.2 | More creative and varied responses | For creative writing |
-| | 1.3-2.0 | Highly creative, potentially less coherent | For experimental content |
-| **Top-K** | 1-10 | Very focused, conservative responses | For deterministic outputs |
-| | 20-40 | Balanced selection | **Recommended default** |
-| | 50-100 | More diverse, potentially less coherent | For creative exploration |
-| **Top-P (Nucleus Sampling)** | 0.1-0.3 | Very focused responses | For precise, narrow outputs |
-| | 0.7-0.9 | Balanced creativity | **Recommended for most cases** |
-| | 0.9-1.0 | Maximum diversity | For maximum creativity |
-| **Penalty Parameters** | Negative values | Encourage repetition/avoid novelty | Rarely used |
-| | 0.0 | No penalty (neutral) | **Default setting** |
-| | Positive values | Reduce repetition/encourage novelty | For varied content |
+| Parameter                    | Range           | Effect                                     | Recommendation                     |
+|:-----------------------------|:----------------|:-------------------------------------------|:-----------------------------------|
+| **Temperature**              | 0.0-0.3         | Very focused, deterministic responses      | For precise, factual content       |
+|                              | 0.4-0.7         | Balanced creativity and coherence          | **Recommended for most use cases** |
+|                              | 0.8-1.2         | More creative and varied responses         | For creative writing               |
+|                              | 1.3-2.0         | Highly creative, potentially less coherent | For experimental content           |
+| **Top-K**                    | 1-10            | Very focused, conservative responses       | For deterministic outputs          |
+|                              | 20-40           | Balanced selection                         | **Recommended default**            |
+|                              | 50-100          | More diverse, potentially less coherent    | For creative exploration           |
+| **Top-P (Nucleus Sampling)** | 0.1-0.3         | Very focused responses                     | For precise, narrow outputs        |
+|                              | 0.7-0.9         | Balanced creativity                        | **Recommended for most cases**     |
+|                              | 0.9-1.0         | Maximum diversity                          | For maximum creativity             |
+| **Penalty Parameters**       | Negative values | Encourage repetition/avoid novelty         | Rarely used                        |
+|                              | 0.0             | No penalty (neutral)                       | **Default setting**                |
+|                              | Positive values | Reduce repetition/encourage novelty        | For varied content                 |
 
 
 ### Parameter Combination Strategies
 
-| Outcome | Potential Combination | Description | Example Use Case |
-|---------|----------------------|-------------|------------------|
-| **Conservative & Accurate** | Low Temperature (0.1–0.3), Small Top-K (≤20), No penalties | Model picks only from safest options. Predictable, focused, minimal risk of nonsense. | Step-by-step math solutions, legal contracts, medical instructions |
-| **Balanced Assistant** | Medium Temperature (0.7–1.0), Top-P ~0.9, Mild penalties | Natural mix of predictability and creativity. Can adapt across domains without drifting. | General-purpose chatbot, customer support, Q&A with light variation |
-| **Creative & Diverse** | High Temperature (1.2–1.8), Large Top-K (≥100), Presence Penalty (0.5–0.8) | Model explores unusual options, introduces new ideas, avoids repetition. | Storytelling, brainstorming, poetry, marketing slogans |
-| **Structured but Flexible** | Medium Temperature (~0.7), Top-P 0.8, Small Frequency Penalty (0.2–0.4) | Ensures logical flow while reducing repeated phrases. | Technical documentation, product descriptions, long-form essays |
-| **Exploratory / Idea Generator** | Temperature 1.0–1.5, Top-P ~0.95, Higher Presence Penalty (0.6–1.0) | Strong push for novelty — encourages out-of-the-box concepts. | Research ideation, design thinking sessions, new feature suggestions |
-| **Highly Deterministic** | Temperature = 0, Top-K = 1 | Model always picks the top choice. Fully reproducible, zero randomness. | Unit test generation, deterministic query responses |
-| **Conversational Naturalness** | Temperature 0.7–0.9, Top-P ~0.9, Mild Frequency Penalty (0.3–0.5) | Sounds like a human — avoids exact repetition but still flows smoothly. | Dialogue systems, teaching assistants, personal companions |
-| **Safe & Guarded** | Low Temp (0.2–0.5), Top-P 0.7–0.8, No penalties | Model sticks to mainstream, cautious answers. | Compliance-focused chatbots, corporate communications |
+| Outcome                          | Potential Combination                                                      | Description                                                                              | Example Use Case                                                     |
+|:--------------------------------|:--------------------------------------------------------------------------|:----------------------------------------------------------------------------------------|:---------------------------------------------------------------------|
+| **Conservative & Accurate**      | Low Temperature (0.1–0.3), Small Top-K (≤20), No penalties                 | Model picks only from safest options. Predictable, focused, minimal risk of nonsense.    | Step-by-step math solutions, legal contracts, medical instructions   |
+| **Balanced Assistant**           | Medium Temperature (0.7–1.0), Top-P ~0.9, Mild penalties                   | Natural mix of predictability and creativity. Can adapt across domains without drifting. | General-purpose chatbot, customer support, Q&A with light variation  |
+| **Creative & Diverse**           | High Temperature (1.2–1.8), Large Top-K (≥100), Presence Penalty (0.5–0.8) | Model explores unusual options, introduces new ideas, avoids repetition.                 | Storytelling, brainstorming, poetry, marketing slogans               |
+| **Structured but Flexible**      | Medium Temperature (~0.7), Top-P 0.8, Small Frequency Penalty (0.2–0.4)    | Ensures logical flow while reducing repeated phrases.                                    | Technical documentation, product descriptions, long-form essays      |
+| **Exploratory / Idea Generator** | Temperature 1.0–1.5, Top-P ~0.95, Higher Presence Penalty (0.6–1.0)        | Strong push for novelty — encourages out-of-the-box concepts.                            | Research ideation, design thinking sessions, new feature suggestions |
+| **Highly Deterministic**         | Temperature = 0, Top-K = 1                                                 | Model always picks the top choice. Fully reproducible, zero randomness.                  | Unit test generation, deterministic query responses                  |
+| **Conversational Naturalness**   | Temperature 0.7–0.9, Top-P ~0.9, Mild Frequency Penalty (0.3–0.5)          | Sounds like a human — avoids exact repetition but still flows smoothly.                  | Dialogue systems, teaching assistants, personal companions           |
+| **Safe & Guarded**               | Low Temp (0.2–0.5), Top-P 0.7–0.8, No penalties                            | Model sticks to mainstream, cautious answers.                                            | Compliance-focused chatbots, corporate communications                |
 
 ### System Prompt Templates
 
@@ -179,26 +186,26 @@ Predefined AI behavior templates that set the tone, style, and expertise level f
 
 The app includes predefined system prompt templates to guide the AI's behavior and response style. Choose from 18 different templates across 5 categories:
 
-| Category | Template | Description | Best For |
-|----------|----------|-------------|----------|
-| **Professional / Formal** | General Professional | Formal, clear, concise responses avoiding slang | Business communications, official documents |
-| | Business Advisor | Practical, actionable advice with examples | Business consulting, strategic planning |
-| | Legal Expert | Precise, accurate, neutral legal guidance | Legal documents, compliance matters |
-| | Medical Expert | Factual medical information with best practices | Healthcare advice, medical explanations |
-| **Technical / Coding** | Software Engineer | Clear code examples with logical explanations | Programming help, code reviews |
-| | Data Analyst | Data insights, trends, and recommendations | Data analysis, business intelligence |
-| | Json Structured Output | Responses in valid JSON format | API responses, structured data |
-| | Step By Step Instructions | Detailed, sequential task guidance | Tutorials, procedures, how-to guides |
-| **Friendly / Casual** | Friendly Assistant | Simple explanations with relatable examples | General help, casual conversations |
-| | Educational Tutor | Patient explanations for learners | Teaching, educational content |
-| | Concise Advisor | Short, clear, actionable answers | Quick help, brief responses |
-| **Creative / Imaginative** | Storyteller | Imaginative narratives with vivid descriptions | Creative writing, storytelling |
-| | Poet Lyricist | Emotional poems and lyrics with rhythm | Poetry, songwriting, creative expression |
-| | Brainstorming Partner | Multiple creative ideas and solutions | Ideation, problem-solving, innovation |
-| | Persona Based Roleplay | Consistent character responses | Roleplay, character interactions |
-| **Vulnerability Scanning / Role Play** | Product Owner | Creating user stories for Salesforce vulnerability scanning with Tenable across regulated/commercial/data center environments, defining acceptance criteria (starting with 'Verify' in bulleted lists), compliance context (SOX, GDPR, HIPAA) | Story creation, vulnerability management, compliance alignment |
-| | Scrum Master | Facilitating vulnerability scanning story creation, managing security dependencies, ensuring compliance-driven acceptance criteria, removing security testing impediments | Sprint planning, security team facilitation, vulnerability management coaching |
-| | Developer | Breaking down vulnerability scanning stories, defining technical acceptance criteria for Tenable integration, identifying security dependencies, implementation context for vulnerability management | Story refinement, technical planning, vulnerability scanning development |
+| Category                               | Template                  | Description                                                                                                                                                                                                                                   | Best For                                                                       |
+|:---------------------------------------|:--------------------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------|
+| **Professional / Formal**              | General Professional      | Formal, clear, concise responses avoiding slang                                                                                                                                                                                               | Business communications, official documents                                    |
+|                                        | Business Advisor          | Practical, actionable advice with examples                                                                                                                                                                                                    | Business consulting, strategic planning                                        |
+|                                        | Legal Expert              | Precise, accurate, neutral legal guidance                                                                                                                                                                                                     | Legal documents, compliance matters                                            |
+|                                        | Medical Expert            | Factual medical information with best practices                                                                                                                                                                                               | Healthcare advice, medical explanations                                        |
+| **Technical / Coding**                 | Software Engineer         | Clear code examples with logical explanations                                                                                                                                                                                                 | Programming help, code reviews                                                 |
+|                                        | Data Analyst              | Data insights, trends, and recommendations                                                                                                                                                                                                    | Data analysis, business intelligence                                           |
+|                                        | Json Structured Output    | Responses in valid JSON format                                                                                                                                                                                                                | API responses, structured data                                                 |
+|                                        | Step By Step Instructions | Detailed, sequential task guidance                                                                                                                                                                                                            | Tutorials, procedures, how-to guides                                           |
+| **Friendly / Casual**                  | Friendly Assistant        | Simple explanations with relatable examples                                                                                                                                                                                                   | General help, casual conversations                                             |
+|                                        | Educational Tutor         | Patient explanations for learners                                                                                                                                                                                                             | Teaching, educational content                                                  |
+|                                        | Concise Advisor           | Short, clear, actionable answers                                                                                                                                                                                                              | Quick help, brief responses                                                    |
+| **Creative / Imaginative**             | Storyteller               | Imaginative narratives with vivid descriptions                                                                                                                                                                                                | Creative writing, storytelling                                                 |
+|                                        | Poet Lyricist             | Emotional poems and lyrics with rhythm                                                                                                                                                                                                        | Poetry, songwriting, creative expression                                       |
+|                                        | Brainstorming Partner     | Multiple creative ideas and solutions                                                                                                                                                                                                         | Ideation, problem-solving, innovation                                          |
+|                                        | Persona Based Roleplay    | Consistent character responses                                                                                                                                                                                                                | Roleplay, character interactions                                               |
+| **Vulnerability Scanning / Role Play** | Product Owner             | Creating user stories for Salesforce vulnerability scanning with Tenable across regulated/commercial/data center environments, defining acceptance criteria (starting with 'Verify' in bulleted lists), compliance context (SOX, GDPR, HIPAA) | Story creation, vulnerability management, compliance alignment                 |
+|                                        | Scrum Master              | Facilitating vulnerability scanning story creation, managing security dependencies, ensuring compliance-driven acceptance criteria, removing security testing impediments                                                                     | Sprint planning, security team facilitation, vulnerability management coaching |
+|                                        | Developer                 | Breaking down vulnerability scanning stories, defining technical acceptance criteria for Tenable integration, identifying security dependencies, implementation context for vulnerability management                                          | Story refinement, technical planning, vulnerability scanning development       |
 
 **Usage Tips:**
 - Select "Custom" to write your own system prompt
@@ -230,13 +237,13 @@ This work reflects my personal AI learning journey and is shared for educational
 
 ### Getting Help
 
-| Support Type | Contact Method | Description |
-|--------------|----------------|-------------|
-| **Documentation** | This guide and code comments | Comprehensive usage and parameter guides |
-| **Issues** | Report bugs and feature requests | Technical problems and enhancement requests |
-| **Discussions** | Join community discussions | General questions and knowledge sharing |
-| **LinkedIn** | [Jyoti Ranjan](https://www.linkedin.com/in/jyoti-ranjan-5083595/) | Professional networking and collaboration |
-| **Email** | jranjan@gmail.com | Direct contact for detailed inquiries |
+| Support Type      | Contact Method                                                    | Description                                 |
+|:------------------|:------------------------------------------------------------------|:--------------------------------------------|
+| **Documentation** | This guide and code comments                                      | Comprehensive usage and parameter guides    |
+| **Issues**        | Report bugs and feature requests                                  | Technical problems and enhancement requests |
+| **Discussions**   | Join community discussions                                        | General questions and knowledge sharing     |
+| **LinkedIn**      | [Jyoti Ranjan](https://www.linkedin.com/in/jyoti-ranjan-5083595/) | Professional networking and collaboration   |
+| **Email**         | jranjan@gmail.com                                                 | Direct contact for detailed inquiries       |
 
 ### Troubleshooting
 

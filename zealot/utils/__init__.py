@@ -2,6 +2,6 @@
 Utility modules
 """
 
-from .printer import LLMPrinter
+from .printer import NativeLLMPrinter
 
-__all__ = ['LLMPrinter']
+__all__ = ['NativeLLMPrinter']
