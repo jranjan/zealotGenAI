@@ -1,0 +1,472 @@
+"""
+Normaliser Tab - Handles data normalisation/flattening
+"""
+
+import streamlit as st
+import os
+import json
+import multiprocessing
+from pathlib import Path
+import pandas as pd
+import sys
+from collections import defaultdict
+
+# Add the current directory to Python path
+current_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(current_dir))
+
+from transformer import TransformerFactory, TransformerType
+from common.system_data import SystemDirectory
+from utils.dataframe_utils import safe_dataframe
+from .base import BaseTab
+
+
+class NormaliserTab(BaseTab):
+    """Handles data normalisation/flattening"""
+    
+    def __init__(self):
+        super().__init__(
+            tab_name="Transform",
+            description=""
+        )
+        # Use factory to create SupersonicFlattener for maximum performance (multiprocessing)
+        self.transformer = TransformerFactory.create_transformer(
+            TransformerType.SUPERSONIC_FLATTENER,
+            max_workers=min(8, multiprocessing.cpu_count()),  # Optimized for multiprocessing
+            chunk_size=20  # Smaller chunks for better memory management
+        )
+        # Initialize target folder (auto-generate by default)
+        self.target_folder = None
+    
+    def _render_content(self):
+        """Render normaliser UI"""
+        # Source Info Section
+        self._render_target_selection()
+        st.markdown("---")
+        
+        # Check if source data is available
+        source_data = st.session_state.get('source_data', {})
+        source_folder = source_data.get('source_folder', '')
+        
+        # Transform Button Section
+        if st.button("🔧 Normalise Data", key="normalise_data", width='stretch', type='primary'):
+            if source_folder and Path(source_folder).exists():
+                self._normalise_data()
+            else:
+                st.warning("⚠️ Please provide a valid source folder path")
+        
+        # Results Section
+        if st.session_state.get('normalised_data'):
+            st.markdown("---")
+            self._render_results()
+    
+    def _render_target_selection(self):
+        """Render target directory selection UI"""
+        source_data = st.session_state.get('source_data', {})
+        source_folder = source_data.get('source_folder', '')
+        st.info(f"**Source:** `{source_folder if source_folder else 'Unknown'}`")
+        
+        # Check if selected folder exists
+        if source_folder:
+            if Path(source_folder).exists():
+                st.success("✅ Selected folder exists")
+            else:
+                st.error("❌ Selected folder does not exist")
+        else:
+            st.warning("⚠️ No folder selected")
+        
+        # Show a placeholder path that will be generated dynamically
+        project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve()
+        
+        if source_folder and Path(source_folder).exists():
+            source_path = Path(source_folder).resolve()
+            # Extract asset class from source path
+            asset_class = source_path.name
+            # Show the new stage directory structure with timestamp
+            placeholder_path = str(source_path.parent / SystemDirectory.get_stage_folder() / asset_class / f"{asset_class}_normalised_<timestamp>")
+        else:
+            placeholder_path = str(project_root / "output" / "flattened_<timestamp>")
+        
+        st.info(f"**Output will be created at:** `{placeholder_path}`")
+        
+        # Set target folder to None (auto-generate)
+        self.target_folder = None
+    
+    
+    def _render_flattened_keys_analysis(self):
+        """Render file selector and key mapping analysis"""
+        normalised_data = st.session_state.get('normalised_data')
+        if not normalised_data or not normalised_data.get('files'):
+            return
+        
+        # Get the output folder from the first processed file
+        first_file = normalised_data['files'][0]
+        output_folder = Path(first_file['output']).parent
+        
+        # Get source folder from session state
+        source_data = st.session_state.get('source_data', {})
+        source_folder = source_data.get('source_folder', '')
+        
+
+        # File selector
+        output_files = list(Path(output_folder).glob("*.json"))
+        if not output_files:
+            st.warning("No flattened files found in output directory")
+            return
+        
+        # Create file selection dropdown with original and flattened file names
+        file_options = []
+        file_mapping = {}
+        
+        for output_file in output_files:
+            # Extract original filename from flattened filename
+            # Handle both formats: "originalname_flattened.json" and "flattened_originalname.json"
+            if output_file.stem.startswith('flattened_'):
+                original_name = output_file.stem.replace('flattened_', '')
+            else:
+                original_name = output_file.stem.replace('_flattened', '')
+            
+            display_name = f"{original_name} → {output_file.name}"
+            file_options.append(display_name)
+            file_mapping[display_name] = output_file.name
+        
+        selected_file_display = st.selectbox(
+            "Select a flattened file to analyze:",
+            file_options,
+            key="file_selector"
+        )
+        
+        if selected_file_display:
+            selected_file = file_mapping[selected_file_display]
+        
+        if selected_file:
+            # Find corresponding source file
+            source_file = None
+            # Extract original filename from flattened filename for better matching
+            if selected_file.startswith('flattened_'):
+                original_name = selected_file.replace('flattened_', '').replace('.json', '')
+            else:
+                original_name = selected_file.replace('_flattened.json', '')
+            
+            for f in Path(source_folder).glob("*.json"):
+                if f.stem == original_name:
+                    source_file = f
+                    break
+            
+            if source_file:
+                self._render_asset_selector(str(source_file), str(output_folder / selected_file))
+            else:
+                st.warning(f"Could not find corresponding source file for {selected_file}")
+                st.info(f"Looking for: {original_name}")
+                st.info(f"Available files: {[f.name for f in Path(source_folder).glob('*.json')]}")
+    
+    def _render_asset_selector(self, source_file_path: str, flattened_file_path: str):
+        """Render asset selector and key mapping analysis"""
+        try:
+            # Load source data
+            with open(source_file_path, 'r', encoding='utf-8') as f:
+                source_data = json.load(f)
+            
+            # Load flattened data
+            with open(flattened_file_path, 'r', encoding='utf-8') as f:
+                flattened_data = json.load(f)
+            
+            # Check if data is a list of assets
+            if isinstance(source_data, list) and len(source_data) > 1:
+                
+                # Create asset selection dropdown (show only asset ID)
+                asset_options = []
+                for i, asset in enumerate(source_data):
+                    asset_id = asset.get('id', f'asset_{i+1}')
+                    asset_options.append(asset_id)
+                
+                selected_asset_idx = st.selectbox(
+                    "Choose an asset:",
+                    range(len(source_data)),
+                    format_func=lambda x: asset_options[x],
+                    key="asset_selector"
+                )
+                
+                if selected_asset_idx is not None:
+                    self._render_asset_key_mapping(source_file_path, flattened_file_path, selected_asset_idx)
+            else:
+                # Single asset or not a list
+                asset_data = source_data[0] if isinstance(source_data, list) else source_data
+                self._render_asset_key_mapping(source_file_path, flattened_file_path, 0)
+                
+        except Exception as e:
+            st.error(f"Error loading file: {str(e)}")
+    
+    def _render_asset_key_mapping(self, source_file_path: str, flattened_file_path: str, asset_index: int = 0):
+        """Render key mapping for a specific asset"""
+        try:
+            
+            # Use the analyser to get all processing done
+            result = self.transformer.get_asset_key_mappings(source_file_path, flattened_file_path, asset_index)
+            
+            if not result.get('success', False):
+                st.error(f"Error analyzing asset: {result.get('error', 'Unknown error')}")
+                return
+                
+        except Exception as e:
+            st.error(f"Error calling get_asset_key_mappings: {str(e)}")
+            return
+        
+        mappings = result.get('mappings', [])
+        summary = result.get('summary', {})
+        asset_info = result.get('asset_info', {})
+        
+        # Debug information
+        st.info(f"🔍 Debug: Found {len(mappings)} mappings for asset {asset_info.get('id', 'Unknown')}")
+        
+        if mappings:
+            asset_name = f"{asset_info['name']} ({asset_info['asset_class']}) - {asset_info['id']}"
+            
+            # Add summary metrics as a two-column table
+            summary_data = {
+                'Metric': ['Total Transformations', 'Direct Values', 'Objects', 'Arrays', 'Missing Attribution', 'Missing Properties', 'Has Name', 'Has Parent Cloud'],
+                'Count': [summary['total_mappings'], summary['direct_values'], summary['objects'], summary['arrays'], 
+                         summary.get('missing_attribution', False),
+                         summary.get('missing_properties', False),
+                         summary.get('has_name', False),
+                         summary.get('has_parent_cloud', False)]
+            }
+            
+            df_summary = safe_dataframe(summary_data)
+            st.dataframe(
+                df_summary, 
+                width='content', 
+                hide_index=True,
+                column_config={
+                    col: st.column_config.TextColumn(
+                        col,
+                        help=f"Shows {col.lower()} information"
+                    )
+                    for col in df_summary.columns
+                }
+            )
+            
+            # Create key-value table data (show all fields)
+            table_data = []
+            for mapping in mappings:
+                table_data.append({
+                    'Key': mapping['flattened_key'],
+                    'Value': str(mapping.get('value', ''))
+                })
+            
+            df = safe_dataframe(table_data)
+            
+            # Configure column display
+            st.dataframe(
+                df, 
+                width='stretch', 
+                hide_index=True,
+                column_config={
+                    "Key": st.column_config.TextColumn(
+                        "Key",
+                        help="The flattened key name",
+                        width="large"
+                    ),
+                    "Value": st.column_config.TextColumn(
+                        "Value",
+                        help="The actual value stored in this key",
+                        width="xlarge"
+                    )
+                }
+            )
+        else:
+            st.info("No key mappings found for this asset")
+    
+    def _normalise_data(self):
+        """Normalise data and update session state"""
+        source_data = st.session_state.get('source_data', {})
+        source_folder = source_data.get('source_folder', '')
+        
+        # Generate fresh timestamp for this run
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
+        
+        # Get the project root directory (independent of where script is run from)
+        project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve()
+        
+        # Use custom target folder if provided, otherwise generate timestamped path
+        if self.target_folder and self.target_folder.strip():
+            target_folder = self.target_folder.strip()
+            # If relative path, make it relative to project root
+            if not Path(target_folder).is_absolute():
+                target_folder = str(project_root / target_folder)
+        else:
+            # Auto-generate path - create stage directory structure
+            if source_folder and Path(source_folder).exists():
+                source_path = Path(source_folder).resolve()
+                # Extract asset class from source path
+                asset_class = source_path.name
+                # Create path: /Users/jyoti.ranjan/Downloads/assets/__stage/servers/servers_normalised_2024_10_10_194500
+                # From: /Users/jyoti.ranjan/Downloads/assets/servers
+                target_folder = str(source_path.parent / SystemDirectory.get_stage_folder() / asset_class / f"{asset_class}_normalised_{timestamp}")
+            else:
+                # Fallback to project root if no source folder
+                target_folder = str(project_root / "output" / f"flattened_{timestamp}")
+        
+        # Update the target folder for display
+        self.target_folder = target_folder
+        
+        # Prevent creating files in the current directory or assetinsight directory
+        target_path = Path(target_folder).resolve()
+        
+        # Get the actual assetinsight directory (where this file is located)
+        assetinsight_dir = Path(__file__).parent.parent.parent.resolve()
+        
+        # Check if target is the assetinsight directory or inside assetinsight
+        if (target_path == assetinsight_dir or 
+            target_path.is_relative_to(assetinsight_dir)):
+            self._render_error_message("❌ Cannot create files in the assetinsight directory. Please specify a proper output directory.")
+            return
+        
+        # Note: No automatic cleanup - timestamped directories keep things organized
+        
+        try:
+            # Create a progress container for better feedback
+            progress_container = st.container()
+            with progress_container:
+                st.info("🔧 Starting data normalisation...")
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+            
+            with st.spinner("🔧 Normalising data..."):
+                # Update status
+                status_text.text("🔄 Processing files with optimized multiprocessing...")
+                progress_bar.progress(0.1)
+                
+                result = self.transformer.transform_directory(source_folder, target_folder)
+                
+                # Update progress
+                progress_bar.progress(0.9)
+                status_text.text("✅ Normalisation complete!")
+                progress_bar.progress(1.0)
+                
+                if 'error' in result:
+                    self._render_error_message(f"Error: {result['error']}")
+                else:
+                    # Update progress for database setup
+                    status_text.text("🗄️ Setting up storage for analytic...")
+                    progress_bar.progress(0.95)
+                    
+                    # Setup DuckDB database immediately after normalisation using Sonic reader
+                    try:
+                        from database.reader.factory import ReaderFactory
+                        
+                        # Use Sonic reader for maximum performance with multiprocessing
+                        readiness_result = ReaderFactory.create_sonic_reader(
+                            target_folder, 
+                            max_workers=multiprocessing.cpu_count(),  # Use all available cores
+                            batch_size=2000,
+                            memory_limit_gb=4.0
+                        )
+                        
+                        # Check if database setup was successful
+                        if not readiness_result.get('ready', False):
+                            raise Exception(f"Database setup failed: {readiness_result.get('error', 'Unknown error')}")
+                        
+                        # Extract database information from the result
+                        total_assets = readiness_result.get('object_count', 0)
+                        total_tables = readiness_result.get('table_count', 0)
+                        health_status = readiness_result.get('health_status', 'UNKNOWN')
+                        
+                        # Update session state with database info
+                        st.session_state.update({
+                            'normalised_data': {
+                                'target_folder': target_folder,
+                                'total_files': result['total_files'],
+                                'successful': result['successful'],
+                                'failed': result['failed'],
+                                'files': result.get('files', []),
+                                'total_assets': total_assets,
+                                'total_tables': total_tables,
+                                'health_status': health_status,
+                                'database_ready': True
+                            },
+                            'normaliser_complete': True
+                        })
+                        
+                        status_text.text("✅ Normalisation and database setup complete!")
+                        progress_bar.progress(1.0)
+                        
+                        self._render_success_message(f"Data normalisation complete! Sonic database ready with {total_assets:,} assets in {total_tables} table(s).")
+                        st.rerun()
+                        
+                    except Exception as db_error:
+                        # If database setup fails, still mark normalisation as complete
+                        st.session_state.update({
+                            'normalised_data': {
+                                'target_folder': target_folder,
+                                'total_files': result['total_files'],
+                                'successful': result['successful'],
+                                'failed': result['failed'],
+                                'files': result.get('files', []),
+                                'database_ready': False
+                            },
+                            'normaliser_complete': True
+                        })
+                        
+                        self._render_success_message("Data normalisation complete! (Sonic database setup will happen on first analysis)")
+                        st.warning(f"⚠️ Database setup failed: {str(db_error)}")
+                        st.rerun()
+                    
+        except Exception as e:
+            self._render_error_message(f"Error during normalisation: {str(e)}")
+    
+    def _render_results(self):
+        """Render normalisation results"""
+        normalised_data = st.session_state.get('normalised_data')
+        if not normalised_data:
+            return
+        
+        # Summary metrics section
+        # Key metrics
+        success_rate = (normalised_data['successful'] / normalised_data['total_files'] * 100) if normalised_data['total_files'] > 0 else 0
+        
+        # Get total assets from database if available, otherwise calculate from files
+        if normalised_data.get('database_ready', False) and 'total_assets' in normalised_data:
+            total_assets = normalised_data['total_assets']
+            db_status = "✅ Ready"
+        else:
+            total_assets = sum(file_info.get('source_assets', 0) for file_info in normalised_data.get('files', []))
+            db_status = "📄 Files Only"
+        
+        metrics = {
+            "📁 Files Processed": normalised_data['total_files'],
+            "✅ Successful": normalised_data['successful'],
+            "❌ Failed": normalised_data['failed'],
+            "📊 Total Assets": f"{total_assets:,}",
+            "📈 Success Rate": f"{success_rate:.1f}%",
+            "🗄️ Database": db_status
+        }
+        self._render_metrics(metrics)
+        
+        st.markdown("---")
+        
+        # File details
+        if normalised_data['files']:
+            file_details = []
+            for file_info in normalised_data['files']:
+                file_details.append({
+                    'Source File': Path(file_info['input']).name,
+                    'Source Assets': file_info.get('source_assets', 0),
+                    'Target File': Path(file_info['output']).name if file_info.get('output') else 'N/A',
+                    'Normalised Assets': file_info.get('normalised_assets', 0),
+                    'Missing Ownership': file_info.get('missing_attribution', 0),
+                    'Missing Name': file_info.get('missing_name', 0),
+                    'Missing Properties': file_info.get('missing_properties', 0)
+                })
+            
+            self._render_dataframe(
+                file_details,
+                title="📋 File Processing Details"
+            )
+        
+        st.markdown("---")
+        
+        # Flattened Keys Analysis
+        self._render_flattened_keys_analysis()
+    

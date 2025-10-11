@@ -3,5 +3,7 @@ PyYAML
 streamlit>=1.28.0
 pandas>=1.5.0
 plotly>=5.15.0
-pathlib
+duckdb>=0.8.0
+orjson>=3.8.0
+psutil>=5.9.0
 

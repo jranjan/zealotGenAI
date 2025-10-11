@@ -12,12 +12,14 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Union
 
-# Add the current directory to Python path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add the parent directory to Python path for imports
+current_dir = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(current_dir))
 
 # Import from local modules
-from analyser.asset import AssetAnalyser, AssetClassResult
-from config.yaml import AssetConfig
+from analyser import AssetAnalyser
+from configreader import AssetFieldConfig
+from common import AnalyserFactory
 
 
 class AssetAnalyserApp:
@@ -28,66 +30,63 @@ class AssetAnalyserApp:
     YAML configuration files and manages multiple asset class processing.
     """
     
-    def __init__(self, config_path: Union[str, Path]):
+    def __init__(self, config_path: Union[str, Path], analyser_type: str = "owner"):
         """
         Initialize the asset analyser app.
         
         Args:
             config_path: Path to the YAML configuration file
+            analyser_type: Type of analyser to use ('owner', 'security', 'network')
         """
         self.config_path = Path(config_path)
-        self.analyser = AssetAnalyser()
-        self.results: List[AssetClassResult] = []
+        self.analyser_type = analyser_type
+        self.analyser = self._create_analyser(analyser_type)
+        self.results: List[Dict[str, Any]] = []
         
         # Load configuration
-        self.config = AssetConfig(config_path)
-        
-        if not self.config.is_valid():
-            raise ValueError(f"Invalid configuration file: {config_path}")
+        self.config = AssetFieldConfig(config_path)
     
-    def analyse_all_assets(self) -> List[AssetClassResult]:
+    def _create_analyser(self, analyser_type: str) -> AssetAnalyser:
+        """Create the appropriate analyser based on type."""
+        return AnalyserFactory.create_analyser(analyser_type)
+    
+    def analyse_all_assets(self) -> List[Dict[str, Any]]:
         """
         Analyse all asset classes defined in the configuration.
         
         Returns:
-            List of AssetClassResult objects for each asset class
+            List of analysis result dictionaries for each asset class
         """
-        print("🚀 Starting Asset Analysis")
+        print(f"🚀 Starting {self.analyser_type.title()} Analysis")
         print("=" * 50)
         
         self.results = []
-        assets = self.config.get_assets()
+        asset_names = self.config.get_asset_names()
         
-        if not assets:
+        if not asset_names:
             print("⚠️  No assets found in configuration")
             return []
         
-        print(f"📋 Found {len(assets)} asset classes to process")
+        print(f"📋 Found {len(asset_names)} asset classes to process")
         
-        for asset_config in assets:
+        for asset_name in asset_names:
             try:
-                # Create a fresh analyser for each asset class to ensure clean processing
-                fresh_analyser = AssetAnalyser()
-                
-                # Get field configurations for this asset
-                asset_fields = self.config.get_asset_fields(asset_config.name)
-                cloud_fields = self.config.get_cloud_fields(asset_config.name)
-                
-                result = fresh_analyser.analyse_asset_class(
-                    asset_class_name=asset_config.name,
-                    source_path=asset_config.source_id,
-                    result_path=asset_config.result_id,
-                    asset_fields=asset_fields,
-                    cloud_fields=cloud_fields
+                # Use the configured analyser
+                result = self.analyser.analyse_with_config(
+                    config=self.config,
+                    source_directory="data/source",  # This should come from config
+                    result_directory="data/results"  # This should come from config
                 )
                 self.results.append(result)
                 
-                print(f"✅ {result.asset_class}: {result.total_assets} assets, {result.processing_stats['parent_clouds_count']} clouds")
+                print(f"✅ {asset_name}: Analysis completed using {self.analyser_type} analyser")
                 
             except Exception as e:
-                print(f"❌ Error processing {asset_config.name}: {e}")
+                print(f"❌ Error processing {asset_name}: {e}")
                 continue
         
+        print("=" * 50)
+        print("🎉 Analysis Complete!")
         return self.results
     
     def get_analysis_summary(self) -> Dict[str, Any]:
@@ -105,18 +104,39 @@ class AssetAnalyserApp:
                 'results_by_asset_class': {}
             }
         
-        total_assets = sum(result.total_assets for result in self.results)
-        total_files = sum(result.processing_stats['files_created'] for result in self.results)
+        # Since results are now dictionaries, we need to handle them differently
+        total_assets = 0
+        total_files = 0
         
         results_by_class = {}
-        for result in self.results:
-            results_by_class[result.asset_class] = {
-                'total_assets': result.total_assets,
-                'parent_clouds': result.processing_stats['parent_clouds_count'],
-                'files_created': result.processing_stats['files_created'],
-                'source_path': result.source_path,
-                'result_path': result.result_path
-            }
+        for i, result in enumerate(self.results):
+            # Handle both old AssetClassResult format and new dictionary format
+            if isinstance(result, dict):
+                asset_class = result.get('asset_class', f'asset_{i}')
+                total_assets += result.get('total_assets', 0)
+                processing_stats = result.get('processing_stats', {})
+                total_files += processing_stats.get('files_created', 0)
+                
+                results_by_class[asset_class] = {
+                    'total_assets': result.get('total_assets', 0),
+                    'parent_clouds': processing_stats.get('parent_clouds_count', 0),
+                    'files_created': processing_stats.get('files_created', 0),
+                    'source_path': result.get('source_path', 'N/A'),
+                    'result_path': result.get('result_path', 'N/A')
+                }
+            else:
+                # Fallback for old format
+                total_assets += getattr(result, 'total_assets', 0)
+                processing_stats = getattr(result, 'processing_stats', {})
+                total_files += processing_stats.get('files_created', 0)
+                
+                results_by_class[getattr(result, 'asset_class', f'asset_{i}')] = {
+                    'total_assets': getattr(result, 'total_assets', 0),
+                    'parent_clouds': processing_stats.get('parent_clouds_count', 0),
+                    'files_created': processing_stats.get('files_created', 0),
+                    'source_path': getattr(result, 'source_path', 'N/A'),
+                    'result_path': getattr(result, 'result_path', 'N/A')
+                }
         
         return {
             'total_asset_classes': len(self.results),
@@ -145,18 +165,18 @@ class AssetAnalyserApp:
             'analysis_summary': summary,
             'configuration': {
                 'config_file': str(self.config_path),
-                'total_asset_classes_configured': len(self.config.get_assets())
+                'total_asset_classes_configured': len(self.config.get_asset_names())
             },
             'detailed_results': [
                 {
-                    'asset_class': result.asset_class,
-                    'source_path': result.source_path,
-                    'result_path': result.result_path,
-                    'total_assets': result.total_assets,
-                    'parent_clouds': result.parent_clouds,
-                    'processing_stats': result.processing_stats
+                    'asset_class': result.get('asset_class', f'asset_{i}'),
+                    'source_path': result.get('source_path', 'N/A'),
+                    'result_path': result.get('result_path', 'N/A'),
+                    'total_assets': result.get('total_assets', 0),
+                    'parent_clouds': result.get('parent_clouds', []),
+                    'processing_stats': result.get('processing_stats', {})
                 }
-                for result in self.results
+                for i, result in enumerate(self.results)
             ]
         }
         
@@ -166,12 +186,12 @@ class AssetAnalyserApp:
         print(f"📊 Analysis report saved: {report_path}")
         return report_path
     
-    def run_analysis(self) -> List[AssetClassResult]:
+    def run_analysis(self) -> List[Dict[str, Any]]:
         """
         Run complete analysis with summary and report generation.
         
         Returns:
-            List of AssetClassResult objects for each asset class
+            List of analysis result dictionaries for each asset class
         """
         print(f"📋 Loading configuration from: {self.config_path}")
         

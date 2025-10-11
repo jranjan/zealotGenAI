@@ -18,8 +18,9 @@ from collections import defaultdict
 
 # Add the parent directory to the path to import AssetAnalyser
 sys.path.append(str(Path(__file__).parent.parent))
-from analyser.asset import AssetAnalyser
-from config.yaml import AssetConfig
+from analyser import AssetAnalyser
+from configreader import AssetFieldConfig
+from common import AnalyserFactory
 
 # Page configuration
 st.set_page_config(
@@ -58,52 +59,57 @@ st.markdown("""
 class AssetInsightDashboard:
     """Main dashboard class for Asset Insight visualization."""
     
-    def __init__(self):
-        self.analyser = AssetAnalyser()
+    def __init__(self, analyser_type: str = "owner"):
+        self.analyser_type = analyser_type
+        self.analyser = self._create_analyser(analyser_type)
         self.config = None
         self.analysis_data = {}
         self.summary_stats = {}
         self.analysis_results = []
         self.temp_files = []  # Track temporary files for cleanup
+    
+    def _create_analyser(self, analyser_type: str) -> AssetAnalyser:
+        """Create the appropriate analyser based on type."""
+        return AnalyserFactory.create_analyser(analyser_type)
         
     def load_analysis_data(self, config_path: str):
         """Load analysis data using AssetAnalyser."""
         try:
             # Load configuration
-            self.config = AssetConfig(config_path)
+            self.config = AssetFieldConfig(config_path)
             
             # Get all assets from config
-            assets = self.config.get_assets()
-            if not assets:
+            asset_names = self.config.get_asset_names()
+            if not asset_names:
                 st.error("❌ No assets found in configuration")
                 return False
             
-            st.info(f"📁 Found {len(assets)} asset classes to analyze")
+            st.info(f"📁 Found {len(asset_names)} asset classes to analyze")
             
             # Run analysis for each asset class
             self.analysis_results = []
             self.analysis_data = {}
             total_assets = 0
             
-            for asset_config in assets:
+            for asset_name in asset_names:
                 try:
                     # Get field configurations
-                    asset_fields = self.config.get_asset_fields(asset_config.name)
-                    cloud_fields = self.config.get_cloud_fields(asset_config.name)
+                    asset_fields = self.config.get_asset_fields(asset_name)
+                    # AssetFieldConfig doesn't have cloud_fields, so we'll use a default
+                    cloud_fields = ['parentCloud', 'team', 'cloud']
                     
                     # Run analysis
+                    # For now, we'll use placeholder paths since AssetFieldConfig doesn't have them
                     result = self.analyser.analyse_asset_class(
-                        asset_class_name=asset_config.name,
-                        source_path=asset_config.source_id,
-                        result_path=asset_config.result_id,
-                        asset_fields=asset_fields,
-                        cloud_fields=cloud_fields
+                        asset_class_name=asset_name,
+                        source_path="data/source",  # This should come from config
+                        result_path="data/results"  # This should come from config
                     )
                     
                     self.analysis_results.append(result)
                     
                     # Load the generated JSON files for visualization
-                    result_dir = Path(asset_config.result_id)
+                    result_dir = Path("data/results")  # Placeholder path
                     timestamp_dirs = [d for d in result_dir.iterdir() if d.is_dir() and d.name.count('_') == 3]
                     if timestamp_dirs:
                         latest_dir = max(timestamp_dirs, key=lambda x: x.name)
@@ -123,7 +129,7 @@ class AssetInsightDashboard:
                                 continue
                     
                 except Exception as e:
-                    st.warning(f"⚠️ Error analyzing {asset_config.name}: {e}")
+                    st.warning(f"⚠️ Error analyzing {asset_name}: {e}")
                     continue
             
             # Calculate summary statistics
@@ -273,7 +279,7 @@ class AssetInsightDashboard:
             })
         
         df_results = pd.DataFrame(results_data)
-        st.dataframe(df_results, use_container_width=True)
+        st.dataframe(df_results, width='stretch')
     
     def render_summary_metrics(self):
         """Render summary metrics at the top of the dashboard."""
@@ -350,7 +356,7 @@ class AssetInsightDashboard:
                 color_continuous_scale='Blues'
             )
             fig_assets.update_layout(xaxis_tickangle=-45)
-            st.plotly_chart(fig_assets, use_container_width=True)
+            st.plotly_chart(fig_assets, width='stretch')
         
         with col2:
             fig_teams = px.bar(
@@ -362,7 +368,7 @@ class AssetInsightDashboard:
                 color_continuous_scale='Greens'
             )
             fig_teams.update_layout(xaxis_tickangle=-45)
-            st.plotly_chart(fig_teams, use_container_width=True)
+            st.plotly_chart(fig_teams, width='stretch')
     
     def render_cloud_details(self, selected_clouds, selected_teams):
         """Render detailed cloud and team information."""
@@ -455,7 +461,7 @@ class AssetInsightDashboard:
                                 
                                 st.dataframe(
                                     df_assets,
-                                    use_container_width=True,
+                                    width='stretch',
                                     height=400
                                 )
     
@@ -495,7 +501,7 @@ class AssetInsightDashboard:
                 names=class_counts.index,
                 title="Asset Class Distribution"
             )
-            st.plotly_chart(fig_class, use_container_width=True)
+            st.plotly_chart(fig_class, width='stretch')
         
         # MBU distribution
         mbus = [asset.get('mbu', 'Unknown') for asset in all_assets]
@@ -509,7 +515,7 @@ class AssetInsightDashboard:
                 labels={'x': 'MBU', 'y': 'Count'}
             )
             fig_mbu.update_layout(xaxis_tickangle=-45)
-            st.plotly_chart(fig_mbu, use_container_width=True)
+            st.plotly_chart(fig_mbu, width='stretch')
         
         # Provision status
         provision_status = [asset.get('provision_status', 'Unknown') for asset in all_assets]
@@ -524,7 +530,7 @@ class AssetInsightDashboard:
                 title="Provision Status Distribution",
                 labels={'x': 'Status', 'y': 'Count'}
             )
-            st.plotly_chart(fig_status, use_container_width=True)
+            st.plotly_chart(fig_status, width='stretch')
         
         # OS Version distribution (top 10)
         os_versions = [asset.get('os_version', 'Unknown') for asset in all_assets]
@@ -538,7 +544,7 @@ class AssetInsightDashboard:
                 title="Top 10 OS Versions",
                 labels={'x': 'Count', 'y': 'OS Version'}
             )
-            st.plotly_chart(fig_os, use_container_width=True)
+            st.plotly_chart(fig_os, width='stretch')
     
     def run(self):
         """Run the main dashboard."""
@@ -587,7 +593,16 @@ class AssetInsightDashboard:
 
 def main():
     """Main function to run the Streamlit app."""
-    dashboard = AssetInsightDashboard()
+    # Add analyser type selection
+    st.sidebar.markdown("### 🔧 Configuration")
+    analyser_type = st.sidebar.selectbox(
+        "Select Analyser Type",
+        AnalyserFactory.get_available_types(),
+        index=0,
+        help="Choose the type of analysis to perform"
+    )
+    
+    dashboard = AssetInsightDashboard(analyser_type=analyser_type)
     dashboard.run()
 
 if __name__ == "__main__":
