@@ -352,4 +352,3 @@ class OwnerAnalyser(AssetAnalyser):
             
         except Exception as e:
             raise ValueError(f"Failed to get team distribution: {str(e)}")
-    

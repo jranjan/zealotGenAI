@@ -1,31 +1,36 @@
 # OpenRouter LLM App Example
 
-This example demonstrates how to use OpenRouter with the ZealotGenAI framework to access multiple LLM models through a single API.
+This example demonstrates how to use OpenRouter with the ZealotGenAI framework to access multiple LLM models through a single API with an interactive loop-based interface.
 
 # Features
 
-- **Configuration Dataset**: Centralized model management through JSON configuration
+- **Interactive Loop Interface**: Choose provider → model → prompt in a continuous loop
+- **Model Catalog Integration**: Uses LLMModelCatalog for comprehensive model management
 - **Multiple Model Support**: Access GPT-4, Claude, Gemini, Llama, and more through OpenRouter
 - **Unified Interface**: Same API for all models
-- **Model Switching**: Switch between models at runtime using configuration
+- **Model Switching**: Switch between models at runtime using interactive selection
 - **Token Validation**: Automatic validation against model limits
 - **User-Friendly Output**: Beautiful formatted responses
 - **Type Safety**: Enum-based model selection with comprehensive token limits
-- **Clean Architecture**: Separated app logic and runner for better maintainability
+- **Clean Architecture**: Uses new minimal LLM client architecture
 
 # File Structure
 
 ```
-zealot/apps/llm/openrouter/
-├── app.py          # OpenRouterApp class (pure app logic)
-├── runapp.py       # Interactive runner script with main() function
-├── requirements.txt # Python dependencies
-└── OPENROUTER.md   # This documentation
+zealot/apps/openrouter/
+├── app.py              # OpenRouterApp class with interactive loop
+├── __init__.py         # Package initialization
+├── __main__.py         # Module runner for python -m execution
+└── requirements.txt    # Python dependencies
+
+documents/apps/
+└── OPENROUTER.md       # This documentation
 ```
 
-- **`app.py`**: Contains the `OpenRouterApp` class that can be imported and used by other modules
-- **`runapp.py`**: Contains the interactive runner script that can be executed directly
-- **Separation of Concerns**: App logic is separate from runner logic for better maintainability
+- **`app.py`**: Contains the `OpenRouterApp` class with interactive loop functionality
+- **`__init__.py`**: Package initialization
+- **`__main__.py`**: Module runner that can be executed with `python -m zealot.apps.openrouter`
+- **Clean Architecture**: Uses the new minimal LLM client architecture
 
 # Setup
 
@@ -45,62 +50,66 @@ export OPENROUTER_API_KEY="your-api-key-here"
 
 ```bash
 # Create virtual environment
-./scripts/build_venv.sh openrouter
+./scripts/devtest/build_venv.sh openrouter
 
 # Activate virtual environment
 source alpha/openrouter/bin/activate
 
 # Install dependencies
-pip install -r zealot/apps/llm/openrouter/requirements.txt
+pip install -r zealot/apps/openrouter/requirements.txt
 ```
 
 # Usage
 
-### Basic Usage
+### Interactive Mode (Recommended)
+
+```bash
+# Run the interactive OpenRouter app
+python3 -m zealot.apps.openrouter
+
+# Choose mode:
+# 1. Interactive Mode (choose provider → model → prompt)
+# 2. Demo Mode (show examples)
+```
+
+### Interactive Flow
+
+1. **Choose Provider**: Select from available providers (OpenAI, Anthropic, Cohere, Google, Meta, Mistral)
+2. **Choose Model**: Pick specific model for that provider with token limits
+3. **Enter Prompt**: Type your question or request
+4. **Get Response**: LLM generates response via OpenRouter
+5. **Loop Back**: Choose different provider/model/prompt or type 'exit'
+
+### Basic Usage (Programmatic)
 
 ```python
-from zealot.apps.llm.openrouter.app import OpenRouterApp
-from zealot.utils.llm_client import LLMProvider
+from zealot.apps.openrouter.app import OpenRouterApp
 
 # Create app
-app = OpenRouterApp(LLMProvider.OPENROUTER, "Zealot OpenRouter App")
+app = OpenRouterApp()
 
-# Use default model (GPT-4o)
-app.run("What is the capital of France?")
+# Use with specific model
+app.run("What is the capital of France?", provider="openrouter", model="openai/gpt-4o")
+app.run("Explain quantum computing", provider="openrouter", model="anthropic/claude-3.5-sonnet")
+app.run("Write a Python function", provider="openrouter", model="cohere/command-a-03-2025")
 ```
 
-### Switch Models
-
-```python
-# Using string model names
-app.run("Explain quantum computing", model="anthropic/claude-3.5-sonnet")
-app.run("Write a Python function", model="meta-llama/llama-3.1-8b-instruct")
-app.run("Generate creative content", model="cohere/command")
-app.run("Quick question", model="openai/gpt-4o-mini")
-
-# Using enum for type safety (recommended)
-from zealot.utils.llm_client.models import OpenRouterModel
-
-app.run("Explain quantum computing", model=OpenRouterModel.CLAUDE_3_5_SONNET.value)
-app.run("Write a Python function", model=OpenRouterModel.LLAMA_3_1_8B_INSTRUCT.value)
-app.run("Generate creative content", model=OpenRouterModel.COHERE_COMMAND.value)
-app.run("Quick question", model=OpenRouterModel.GPT_4O_MINI.value)
-```
-
-### Available Models
+### Available Models (via LLMModelCatalog)
 
 - **OpenAI**: `openai/gpt-4o`, `openai/gpt-4o-mini`, `openai/gpt-3.5-turbo`
 - **Anthropic**: `anthropic/claude-3.5-sonnet`, `anthropic/claude-3-haiku`
 - **Google**: `google/gemini-pro`
-- **Cohere**: `cohere/command`, `cohere/command-light`, `cohere/command-nightly`
+- **Cohere**: `cohere/command-a-03-2025`, `cohere/command-r-plus`, `cohere/command-r`
 - **Meta**: `meta-llama/llama-3.1-8b-instruct`
 - **Mistral**: `mistralai/mistral-7b-instruct`
+
+All models are managed through the `LLMModelCatalog` with comprehensive token limits and validation.
 
 
 ### Model Comparison Table
 
 | Provider  | Model                              | Best For                       | Speed     | Cost     | Input Tokens | Output Tokens |
-|-----------|------------------------------------|--------------------------------|-----------|----------|--------------|---------------|
+|:----------|:-----------------------------------|:-------------------------------|:----------|:---------|:-------------|:--------------|
 | OpenAI    | `openai/gpt-4o`                    | General purpose, high quality  | Medium    | High     | 128,000      | 16,384        |
 | OpenAI    | `openai/gpt-4o-mini`               | Fast responses, cost-effective | Fast      | Low      | 128,000      | 16,384        |
 | Anthropic | `anthropic/claude-3.5-sonnet`      | Reasoning, analysis            | Medium    | High     | 200,000      | 8,192         |
@@ -206,30 +215,37 @@ is_valid, error = client.validate_tokens(1000, 500)
 
 # Run the Example
 
-### Using the Runner Script
+### Interactive Mode
 
 ```bash
-# Run the OpenRouter app using the interactive runner script
-python3 zealot/apps/llm/openrouter/runapp.py
+# Run the interactive OpenRouter app
+python3 -m zealot.apps.openrouter
+
+# Choose mode:
+# 1. Interactive Mode (choose provider → model → prompt)
+# 2. Demo Mode (show examples)
 ```
 
-The runner script provides an interactive experience:
-1. Lists all available OpenRouter models
-2. Shows OpenRouter configuration
-3. Displays a sample prompt
-4. Allows you to select a model by number
-5. Shows model information
-6. Runs the app with the selected model
+The interactive mode provides:
+1. **Provider Selection**: Choose from available providers with model counts
+2. **Model Selection**: Pick specific model for chosen provider with token limits
+3. **Prompt Input**: Enter custom prompts with 'back' option
+4. **Model Info**: Shows token limits before using
+5. **Continuous Loop**: Keep using until you type 'exit'
+6. **List All Models**: Option to see all models at once
+
+### Demo Mode
+
+The demo mode is built into the main app - just run the interactive mode and choose option 2.
 
 ### Using the App Class Directly
 
 ```python
 # Import and use the app class directly
-from zealot.apps.llm.openrouter.app import OpenRouterApp
-from zealot.utils.llm_client import LLMProvider
+from zealot.apps.openrouter.app import OpenRouterApp
 
 # Create and run the app
-app = OpenRouterApp(LLMProvider.OPENROUTER, "OpenRouter Demo App")
+app = OpenRouterApp()
 
 # List available models
 app.list_models()
@@ -238,18 +254,10 @@ app.list_models()
 app.show_model_info("openai/gpt-4o")
 
 # Run with a specific model
-response = app.run("What is artificial intelligence?", "openai/gpt-4o")
+response = app.run("What is artificial intelligence?", provider="openrouter", model="openai/gpt-4o")
 
-# Run with configuration from openrouter.json
-# The app automatically uses parameters from zealot/config/llm/openrouter.json
-response = app.run("Hello!", "cohere/command")
-
-# Or override specific parameters if needed
-custom_params = {
-    "temperature": 0.5,
-    "max_tokens": 200
-}
-response = app.run("Hello!", "openai/gpt-4o", provider_params=custom_params)
+# Demonstrate catalog features
+app.demonstrate_catalog_features()
 ```
 
 # Benefits of OpenRouter
