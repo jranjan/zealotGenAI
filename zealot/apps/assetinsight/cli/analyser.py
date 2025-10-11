@@ -5,9 +5,9 @@ Analyser CLI - Command line interface for asset analysis
 import sys
 import json
 from pathlib import Path
-from analyser.owner import AssetOwnerAnalyser
-from analyser.security import AssetSecurityAnalyser
-from config.yaml import AssetConfig
+from analyser import AssetAnalyser
+from configreader import AssetFieldConfig
+from common import AnalyserFactory
 
 
 class AnalyserCLI:
@@ -29,17 +29,16 @@ class AnalyserCLI:
         """
         try:
             # Load configuration
-            self.config = AssetConfig(config_path)
+            self.config = AssetFieldConfig(config_path)
             print(f"📋 Loaded configuration from: {config_path}")
             
             # Create analyser based on type
-            if analyser_type == "owner":
-                self.analyser = AssetOwnerAnalyser()
-            elif analyser_type == "security":
-                self.analyser = AssetSecurityAnalyser()
-            else:
+            if not AnalyserFactory.is_valid_type(analyser_type):
                 print(f"❌ Error: Unknown analyser type: {analyser_type}")
+                print(f"Available types: {AnalyserFactory.get_available_types()}")
                 sys.exit(1)
+            
+            self.analyser = AnalyserFactory.create_analyser(analyser_type)
             
             print(f"🔍 Running {analyser_type} analysis...")
             print(f"📂 Source: {source_folder}")

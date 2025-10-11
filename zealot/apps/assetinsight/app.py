@@ -2,11 +2,10 @@
 """
 Asset Insight Streamlit Dashboard
 
-A comprehensive multi-phase dashboard for asset data processing:
-1. Source - Analyze source data directory
-2. Transform - Transform/flatten data structures
-3. Analyze - Perform asset analysis with configuration
-4. Intelligence - Advanced analysis and insights
+A complete 3-phase dashboard for asset data processing:
+1. Source - Select and analyze raw data directory
+2. Transform - Transform/flatten data and create DuckDB database
+3. Ownership - Analyze asset ownership with interactive charts
 
 Usage:
   streamlit run app.py
@@ -21,7 +20,8 @@ current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 # Import dashboard components
-from dashboard.tabs import SourceTab, NormaliserTab, AnalyserTab, IntelligenceTab
+from dashboard.tabs import SourceTab, NormaliserTab
+from dashboard.tabs.analysis.ownership import OwnershipAnalyserTab
 
 
 # Page configuration
@@ -84,62 +84,22 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if 'workflow_state' not in st.session_state:
-    st.session_state.workflow_state = {
-        'source_complete': False,
-        'transform_complete': False,
-        'analyze_complete': False,
-        'intelligence_complete': False,
-        'current_phase': 'source'
-    }
-
-# Workflow progress indicator
-st.markdown('<div class="workflow-container">', unsafe_allow_html=True)
-st.markdown("### 📋 Workflow Progress")
-
-phase_steps = [
-    ("🔍 Source", "source", st.session_state.workflow_state.get('source_complete', False)),
-    ("🔄 Transform", "transform", st.session_state.workflow_state.get('transform_complete', False)),
-    ("📊 Analyze", "analyze", st.session_state.workflow_state.get('analyze_complete', False)),
-    ("🧠 Intelligence", "intelligence", st.session_state.workflow_state.get('intelligence_complete', False))
-]
-
-current_phase = st.session_state.workflow_state.get('current_phase', 'source')
-
-# Create phase indicators
-cols = st.columns(4)
-for i, (name, phase, completed) in enumerate(phase_steps):
-    with cols[i]:
-        if phase == current_phase:
-            st.markdown(f'<div class="phase-step active"><strong>{name}</strong><br>Current</div>', unsafe_allow_html=True)
-        elif completed:
-            st.markdown(f'<div class="phase-step completed"><strong>{name}</strong><br>✅ Complete</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="phase-step"><strong>{name}</strong><br>⏳ Pending</div>', unsafe_allow_html=True)
-
-st.markdown('</div>', unsafe_allow_html=True)
-
 # Main content area with tabs
-tab1, tab2, tab3, tab4 = st.tabs(["🔍 Source", "🔄 Transform", "📊 Analyze", "🧠 Intelligence"])
+tab1, tab2, tab3 = st.tabs(["Source", "Transform", "Ownership"])
 
 with tab1:
     source_tab = SourceTab()
-    source_tab.render(st.session_state.workflow_state)
+    source_tab.render()
 
 with tab2:
     normaliser_tab = NormaliserTab()
-    normaliser_tab.render(st.session_state.workflow_state)
+    normaliser_tab.render()
 
 with tab3:
-    analyser_tab = AnalyserTab()
-    analyser_tab.render(st.session_state.workflow_state)
+    ownership_tab = OwnershipAnalyserTab()
+    ownership_tab.render()
 
-with tab4:
-    intelligence_tab = IntelligenceTab()
-    intelligence_tab.render(st.session_state.workflow_state)
-
-# Footer with copyright and branding (using LLM Studio footer function)
+# Footer with copyright and branding (using StreamlitUI)
 import sys
 from pathlib import Path
 
@@ -148,18 +108,21 @@ project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve(
 sys.path.append(str(project_root / "zealot" / "utils" / "streamlit"))
 
 try:
-    from copyright_footer import render_llm_studio_footer
+    from copyright_footer import StreamlitUI
     
-    render_llm_studio_footer(
+    StreamlitUI.render_footer(
         logo_path=str(project_root / "assets" / "logo.jpg"),
-        author_name="Jyoti Ranjan",
+        logo_width=100,
+        copyright_text="All rights reserved",
         linkedin_url="https://www.linkedin.com/in/jyoti-ranjan-5083595/",
-        project_name="Asset Insight Studio"
+        author_name="Jyoti Ranjan",
+        additional_text="This work reflects my personal AI learning journey and is shared for educational and knowledge-building purposes. While unauthorized reproduction, modification, or commercial use without prior written consent is strictly prohibited, I warmly welcome discussions, feedback, and collaborative learning exchanges.",
+        logo_fallback="🚀"
     )
 except ImportError:
     # Fallback to simple footer if import fails
     st.markdown("---")
-    st.markdown("**© 2025 [Jyoti Ranjan](https://www.linkedin.com/in/jyoti-ranjan-5083595/). All rights reserved.**")
+    st.markdown("**🚀 © 2025 [Jyoti Ranjan](https://www.linkedin.com/in/jyoti-ranjan-5083595/). All rights reserved.**")
 
 
 # This is a Streamlit app - no main function needed

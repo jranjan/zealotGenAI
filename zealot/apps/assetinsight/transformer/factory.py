@@ -3,11 +3,11 @@ Transformer Factory - Factory pattern for creating transformer instances
 """
 
 from enum import Enum
-from typing import Dict, Any, Optional
+from typing import Dict
 from .base import Transformer
 from .flattener import Flattener
-from .sonicflattener import SonicFlattener
-from .supersonicflattener import SupersonicFlattener
+from .flattener_sonic import SonicFlattener
+from .flattener_supersonic import SupersonicFlattener
 
 
 class TransformerType(Enum):

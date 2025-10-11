@@ -5,6 +5,8 @@ Transformer Base Class - Abstract base class for data transformation operations
 from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional
 from pathlib import Path
+import json
+from .utils.flattener_helper import FlattenerHelper
 
 
 class Transformer(ABC):
@@ -44,6 +46,21 @@ class Transformer(ABC):
             
         Returns:
             True if successful, False otherwise
+        """
+        pass
+    
+    @abstractmethod
+    def _process_single_file(self, file_path: str, target_dir: str) -> Dict[str, Any]:
+        """
+        Process a single JSON file and create flattened version.
+        This method must be implemented by derived classes.
+        
+        Args:
+            file_path: Path to source JSON file
+            target_dir: Target directory for output
+            
+        Returns:
+            Dictionary with processing results
         """
         pass
     
@@ -179,46 +196,6 @@ class Transformer(ABC):
         
         return result
     
-    def flatten_json_data(self, data: Any, parent_key: str = '', sep: str = '.') -> Dict[str, Any]:
-        """
-        Flatten nested JSON data into a single level dictionary.
-        
-        Args:
-            data: JSON data to flatten
-            parent_key: Parent key for nested data
-            sep: Separator for nested keys
-            
-        Returns:
-            Flattened dictionary
-        """
-        items = []
-        
-        if isinstance(data, dict):
-            for key, value in data.items():
-                new_key = f"{parent_key}{sep}{key}" if parent_key else key
-                if isinstance(value, dict):
-                    items.extend(self.flatten_json_data(value, new_key, sep=sep).items())
-                elif isinstance(value, list):
-                    # Handle lists by creating indexed keys
-                    for i, item in enumerate(value):
-                        list_key = f"{new_key}[{i}]"
-                        if isinstance(item, dict):
-                            items.extend(self.flatten_json_data(item, list_key, sep=sep).items())
-                        else:
-                            items.append((list_key, item))
-                else:
-                    items.append((new_key, value))
-        elif isinstance(data, list):
-            for i, item in enumerate(data):
-                list_key = f"{parent_key}[{i}]" if parent_key else f"[{i}]"
-                if isinstance(item, dict):
-                    items.extend(self.flatten_json_data(item, list_key, sep=sep).items())
-                else:
-                    items.append((list_key, item))
-        else:
-            items.append((parent_key, data))
-        
-        return dict(items)
     
     def get_directory_info(self, directory_path: str) -> Dict[str, Any]:
         """
@@ -252,3 +229,71 @@ class Transformer(ABC):
                 'file_count': 0,
                 'error': str(e)
             }
+    
+    
+    def _analyze_source_file(self, file_path: str) -> Dict[str, Any]:
+        """Analyze a source file to count assets and missing fields"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            assets = data if isinstance(data, list) else [data]
+            total_assets = len(assets)
+            missing_attribution = sum(1 for asset in assets if not asset.get('assetAttributions'))
+            missing_properties = sum(1 for asset in assets if not asset.get('properties'))
+            
+            return {
+                'total_assets': total_assets,
+                'missing_attribution': missing_attribution,
+                'missing_properties': missing_properties
+            }
+        except Exception as e:
+            return {
+                'total_assets': 0,
+                'missing_attribution': 0,
+                'missing_properties': 0
+            }
+    
+    def _load_and_normalize_json(self, file_path: str) -> List[Dict[str, Any]]:
+        """Load JSON file and normalize to list format"""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        return data if isinstance(data, list) else [data]
+    
+    def _flatten_assets_with_analysis(self, assets: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], int, int, int, int]:
+        """Flatten assets and count missing attribution/properties"""
+        flattened_assets = []
+        missing_attribution = 0
+        missing_properties = 0
+        missing_name = 0
+        missing_parent_cloud = 0
+        
+        for asset in assets:
+            if not isinstance(asset, dict):
+                continue
+            
+            # Check for missing attribution
+            if 'assetAttributions' not in asset or not asset['assetAttributions']:
+                missing_attribution += 1
+            
+            # Check for missing properties
+            if 'properties' not in asset or not asset['properties']:
+                missing_properties += 1
+            
+            # Check for missing name
+            name_value = asset.get('name')
+            if not name_value or str(name_value).strip() in ['', 'None', 'null']:
+                missing_name += 1
+            
+            # Flatten the asset using FlattenerHelper
+            flattened_asset = FlattenerHelper.flatten_asset(asset)
+            
+            # Check for missing parent cloud in flattened data
+            parent_cloud_value = flattened_asset.get('parent_cloud')
+            if parent_cloud_value is None or (isinstance(parent_cloud_value, str) and parent_cloud_value.strip() in ['', 'None', 'null']):
+                missing_parent_cloud += 1
+            
+            flattened_assets.append(flattened_asset)
+        
+        return flattened_assets, missing_attribution, missing_properties, missing_name, missing_parent_cloud

@@ -1,21 +1,154 @@
 assets:
   - name: Server
-    source_id: /Users/jyoti.ranjan/Downloads/assets/servers
-    result_id: /Users/jyoti.ranjan/Downloads/assets/anlysis/servers
     asset_fields:
+      # Basic asset fields
       - id
       - name
       - identifier
+      - createdDate
+      - lastModifiedDate
       - assetClass
-      - mbu
-      - public_ip_address
-      - fqdn
-      - provision_status
-      - os_version
-      - serial_number
-      - mac_address
-      - substrate
-    cloud_fields:
-      - parentCloud
+      - organization
+      - startDate
+      - endDate
+      - lastSeenDate
+      - status
+      - accountId
+      - deleted
+      # Flattened ownership fields
+      - parent_cloud
+      - parent_cloud_id
+      - parent_cloud_owner_email
       - cloud
+      - cloud_id
+      - cloud_owner_email
       - team
+      - team_id
+      - team_owner_email
+      # Flattened properties fields
+      - properties_mbu
+      - properties_public_ip_address
+      - properties_fqdn
+      - properties_provision_status
+      - properties_os_version
+      - properties_serial_number
+      - properties_platform
+      - properties_data_source
+      - properties_manufacturer
+      - properties_hostname
+      - properties_bu
+      - properties_mac_address
+      - properties_private_ip_address
+      - properties_substrate
+
+  - name: EC2
+    asset_fields:
+      # Basic asset fields
+      - id
+      - name
+      - identifier
+      - createdDate
+      - lastModifiedDate
+      - assetClass
+      - organization
+      - startDate
+      - endDate
+      - lastSeenDate
+      - status
+      - accountId
+      - group
+      - deleted
+      # Flattened ownership fields
+      - parent_cloud
+      - parent_cloud_id
+      - parent_cloud_owner_email
+      - cloud
+      - cloud_id
+      - cloud_owner_email
+      - team
+      - team_id
+      - team_owner_email
+      # EC2 specific properties fields
+      - properties_mbu
+      - properties_chassis_type
+      - properties_vpc_id
+      - properties_confidentiality
+      - properties_minor_version
+      - properties_image_name
+      - properties_account_name
+      - properties_is_falcon_resource
+      - properties_service_tier
+      - properties_cs_rfm
+      - properties_private_dns_name
+      - properties_cs_product_type
+      - properties_key_name
+      - properties_major_version
+      - properties_instance_id
+      - properties_availability_zone
+      - properties_subnet_id
+      - properties_security_groups
+      - properties_launch_time
+      - properties_state
+      - properties_state_reason
+      - properties_architecture
+      - properties_hypervisor
+      - properties_public_dns_name
+      - properties_source_dest_check
+      - properties_root_device_name
+      - properties_root_device_type
+      - properties_spot_instance_request_id
+      - properties_tags
+      - properties_tenancy
+      - properties_usage_operation
+      - properties_usage_operation_update_time
+      - properties_user_data
+      - properties_cpu_options
+      - properties_credit_specification
+      - properties_elastic_gpu_associations
+      - properties_elastic_inference_accelerator_associations
+      - properties_ena_support
+      - properties_iam_instance_profile
+      - properties_kernel_id
+      - properties_licenses
+      - properties_network_interfaces
+      - properties_product_codes
+      - properties_reservation_id
+      - properties_state_code
+      # Tag fields
+      - tags_Last_Patched
+      - tags_DOMAIN
+      - tags_IAPP_FILE
+      - tags_u_service_tier
+      - tags_p_confidentiality
+      - tags_u_scan_eligibility
+      - tags_u_customer_data
+      - tags_ENV
+      - tags_ORGANIZATION_ID
+      - tags_ROLE
+      - tags_CUSTOMER_ENV
+      - tags_Patch_Version
+      - tags_SUBSCRIPTION_TYPE
+      - tags_MULE_VERSION
+      - tags_ORG_ENV
+      - tags_u_gus_team_id
+      - tags_FabricId
+      - tags_InfraId
+      - tags_aws:eks:cluster-name
+      - tags_Product
+      - tags_aws:ec2launchtemplate:version
+      - tags_karpenter.sh/nodeclaim
+      - tags_Name
+      - tags_aws:ec2:fleet-id
+      - tags_ClusterShard
+      - tags_karpenter.sh/nodepool
+      - tags_eks:eks-cluster-name
+      - tags_RootOrgId
+      - tags_karpenter.k8s.aws/ec2nodeclass
+      - tags_Flavor
+      - tags_MasterOrgId
+      - tags_OrgId
+      - tags_Type
+      - tags_Environment
+      - tags_kubernetes.io/cluster/26272395-b78a-4a17-a733-95a6d825d623
+      - tags_Domain
+      - tags_aws:ec2launchtemplate:id

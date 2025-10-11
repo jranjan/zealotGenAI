@@ -1,57 +1,28 @@
 """
-Base Tab - Abstract base class for all workflow tabs
-Contains common functionality and interface
+Base Tab - Simple base class for all tabs
+Contains common utility methods
 """
 
 import streamlit as st
-import os
 from abc import ABC, abstractmethod
 
 
 class BaseTab(ABC):
-    """Abstract base class for all workflow tabs"""
+    """Simple base class for all tabs"""
     
     def __init__(self, tab_name: str, description: str):
         self.tab_name = tab_name
         self.description = description
     
-    def render(self, workflow_state):
-        """Main render method - template pattern"""
-        st.markdown(f"### {self.tab_name}")
-        st.markdown(self.description)
-        
-        # Check prerequisites
-        if not self._check_prerequisites(workflow_state):
-            self._render_prerequisite_warning()
-            return
-        
-        # Render tab content
-        self._render_content(workflow_state)
-        
-        # Render results if stage is complete
-        if self.is_complete(workflow_state):
-            self._render_results(workflow_state)
-    
-    def _check_prerequisites(self, workflow_state):
-        """Check if prerequisites are met for this tab"""
-        return True  # Override in subclasses
-    
-    def _render_prerequisite_warning(self):
-        """Render warning when prerequisites are not met"""
-        st.warning("⚠️ **Prerequisites not met** - Please complete previous stages first")
+    def render(self):
+        """Main render method - simple and clean"""
+        if self.description:
+            st.markdown(self.description)
+        self._render_content()
     
     @abstractmethod
-    def _render_content(self, workflow_state):
+    def _render_content(self):
         """Render the main content of the tab - must be implemented by subclasses"""
-        pass
-    
-    def _render_results(self, workflow_state):
-        """Render results when stage is complete - can be overridden by subclasses"""
-        st.success(f"✅ **{self.tab_name} Stage Complete**")
-    
-    @abstractmethod
-    def is_complete(self, workflow_state):
-        """Check if this stage is complete - must be implemented by subclasses"""
         pass
     
     def _render_metrics(self, metrics):
@@ -73,8 +44,21 @@ class BaseTab(ABC):
             st.markdown(f"### {title}")
         
         import pandas as pd
-        df = pd.DataFrame(data)
-        st.dataframe(df, use_container_width=True)
+        from utils.dataframe_utils import safe_dataframe
+        
+        df = safe_dataframe(data)
+        
+        st.dataframe(
+            df, 
+            width='stretch',
+            column_config={
+                col: st.column_config.TextColumn(
+                    col,
+                    help=f"Shows {col.lower()} information"
+                )
+                for col in df.columns
+            }
+        )
     
     def _render_success_message(self, message, next_step=None):
         """Render success message with optional next step"""
@@ -149,14 +133,14 @@ class BaseTab(ABC):
     def _render_action_button(self, 
                             button_text, 
                             button_type="primary",
-                            use_container_width=True,
+                            width='stretch',
                             key=None):
         """Render action button"""
         st.markdown("**Actions**")
         return st.button(
             button_text, 
             type=button_type, 
-            use_container_width=use_container_width,
+            width=width,
             key=key
         )
     
@@ -167,49 +151,3 @@ class BaseTab(ABC):
         if next_stage:
             st.markdown(f"👉 **Next:** Go to {next_stage} tab")
     
-    def _render_configuration_preview(self, config_path):
-        """Render configuration file preview"""
-        if not config_path or not os.path.exists(config_path):
-            return
-        
-        st.info(f"✅ Configuration file found: `{config_path}`")
-        
-        with st.expander("📋 View Configuration Content"):
-            try:
-                with open(config_path, 'r') as f:
-                    config_content = f.read()
-                st.code(config_content, language="yaml")
-            except Exception as e:
-                st.error(f"Error reading configuration: {e}")
-    
-    def _render_file_validation(self, path, path_type="directory"):
-        """Render file/directory validation info"""
-        if not path:
-            st.warning("⚠️ No path provided")
-            return
-        
-        if not os.path.exists(path):
-            st.warning(f"⚠️ {path_type.title()} does not exist")
-            return
-        
-        if path_type == "directory" and not os.path.isdir(path):
-            st.error(f"❌ Path exists but is not a directory")
-            return
-        
-        if path_type == "file" and not os.path.isfile(path):
-            st.error(f"❌ Path exists but is not a file")
-            return
-        
-        st.success(f"✅ {path_type.title()} exists")
-        
-        if path_type == "directory":
-            # Count JSON files
-            json_files = list(Path(path).glob("*.json"))
-            st.info(f"Found {len(json_files)} JSON files")
-            
-            if json_files:
-                st.write("Sample files:")
-                for file_path in json_files[:3]:
-                    st.write(f"- {file_path.name}")
-                if len(json_files) > 3:
-                    st.write(f"... and {len(json_files) - 3} more files")

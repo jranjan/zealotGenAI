@@ -1,25 +1,29 @@
 """
-Asset Owner Analyser - Handles asset ownership analysis
+Owner Asset Analyser - Concrete implementation for owner-specific asset analysis.
+
+This analyser focuses on ownership, team assignments, and resource attribution
+aspects of asset data using DuckDB for efficient querying.
 """
 
-from typing import Dict, Any, List
-from pathlib import Path
-import json
-import os
-from datetime import datetime
-from collections import defaultdict
+from typing import Any, Dict, List
 from .asset import AssetAnalyser
 
 
-class AssetOwnerAnalyser(AssetAnalyser):
-    """Handles asset ownership analysis operations"""
+class OwnerAnalyser(AssetAnalyser):
+    """
+    Concrete implementation of AssetAnalyser for owner-specific analysis.
+    
+    This analyser focuses on ownership, team assignments, and resource attribution
+    aspects of asset data.
+    """
     
     def __init__(self):
-        super().__init__()
+        """Initialize the owner analyser."""
+        super().__init__("owner")
     
     def analyse_with_config(self, config, source_directory: str, result_directory: str) -> Dict[str, Any]:
         """
-        Analyze assets using configuration.
+        Analyze assets using configuration for ownership analysis.
         
         Args:
             config: Configuration object
@@ -30,162 +34,322 @@ class AssetOwnerAnalyser(AssetAnalyser):
             Analysis results dictionary
         """
         try:
-            # Create timestamped result directory
-            timestamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
-            result_path = Path(result_directory) / f"analysis_{timestamp}"
-            result_path.mkdir(parents=True, exist_ok=True)
-            
-            # Process files
-            results = self._process_assets(config, source_directory, str(result_path))
-            
-            return results
-            
+            self.create_reader(source_directory)
+            summary = self.get_ownership_summary()
+            return {
+                'success': True,
+                'summary': summary,
+                'analyser_type': self.analyser_type
+            }
         except Exception as e:
             return {
                 'success': False,
                 'error': str(e),
-                'total_clouds': 0,
-                'total_assets': 0,
-                'clouds': {}
+                'analyser_type': self.analyser_type
             }
+        finally:
+            self.close_reader()
     
-    def _process_assets(self, config, source_directory: str, result_directory: str) -> Dict[str, Any]:
-        """Process assets and generate results"""
-        source_path = Path(source_directory)
-        json_files = list(source_path.glob("*.json"))
+    def get_asset_fields(self) -> List[str]:
+        """
+        Get the list of asset fields specific to ownership analysis.
         
-        if not json_files:
-            return {
-                'success': True,
-                'total_clouds': 0,
-                'total_assets': 0,
-                'clouds': {}
-            }
+        Returns:
+            List of asset field names to extract
+        """
+        return [
+            'id', 'name', 'assetClass', 'status', 'organization',
+            'parent_cloud', 'cloud', 'team'
+        ]
+    
+    def get_cloud_fields(self) -> List[str]:
+        """
+        Get the list of cloud fields specific to ownership analysis.
         
-        # Group assets by parent cloud
-        cloud_groups = defaultdict(lambda: {'assets': [], 'teams': set()})
-        total_assets = 0
+        Returns:
+            List of cloud field names to extract
+        """
+        return ['parent_cloud', 'cloud', 'team']
+    
+    def process_asset_specific_data(self, asset: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Process asset-specific data for ownership analysis.
         
-        for json_file in json_files:
-            try:
-                with open(json_file, 'r', encoding='utf-8') as f:
-                    data = json.load(f)
-                
-                assets = data if isinstance(data, list) else [data]
-                
-                for asset in assets:
-                    total_assets += 1
-                    
-                    # Get parent cloud
-                    parent_cloud = self._get_parent_cloud(asset)
-                    cloud_groups[parent_cloud]['assets'].append(asset)
-                    
-                    # Extract team information
-                    team_name = self._get_team_name(asset)
-                    if team_name:
-                        cloud_groups[parent_cloud]['teams'].add(team_name)
-                        
-            except Exception as e:
-                print(f"Error processing {json_file}: {e}")
-                continue
-        
-        # Generate results
-        results = {
-            'success': True,
-            'total_clouds': len(cloud_groups),
-            'total_assets': total_assets,
-            'clouds': {}
-        }
-        
-        for parent_cloud, group_data in cloud_groups.items():
-            cloud_result = self._create_cloud_result(parent_cloud, group_data, config)
-            results['clouds'][parent_cloud] = cloud_result
+        Args:
+            asset: Asset data dictionary (already flattened with ownership fields)
             
-            # Write individual cloud result file
-            output_file = result_directory / f"{parent_cloud.replace(' ', '_')}.json"
-            with open(output_file, 'w', encoding='utf-8') as f:
-                json.dump(cloud_result, f, indent=2, ensure_ascii=False)
-        
-        return results
+        Returns:
+            Processed asset data (no additional processing needed)
+        """
+        # Ownership fields are already flattened by FlattenerHelper
+        # No additional processing needed
+        return asset
     
-    def _get_parent_cloud(self, asset: Dict[str, Any]) -> str:
-        """Extract parent cloud name from asset"""
+    def get_ownership_summary(self) -> Dict[str, Any]:
+        """
+        Get ownership summary statistics using DuckDB SQL queries.
+        
+        Returns:
+            Dictionary containing ownership summary data
+            
+        Raises:
+            ValueError: If reader is not initialized
+        """
+        if not self.reader:
+            raise ValueError("Reader not initialized. Call create_reader() first.")
+        
         try:
-            attributions = asset.get('assetAttributions', [])
-            if attributions and len(attributions) > 0:
-                return attributions[0].get('parentCloud', {}).get('name', 'Unknown')
-            return 'Zombie Cloud'
-        except:
-            return 'Zombie Cloud'
-    
-    def _get_team_name(self, asset: Dict[str, Any]) -> str:
-        """Extract team name from asset"""
-        try:
-            attributions = asset.get('assetAttributions', [])
-            if attributions and len(attributions) > 0:
-                return attributions[0].get('team', {}).get('name', 'Unknown')
-            return 'Unknown'
-        except:
-            return 'Unknown'
-    
-    def _create_cloud_result(self, parent_cloud: str, group_data: Dict, config) -> Dict[str, Any]:
-        """Create result structure for a cloud"""
-        assets = group_data['assets']
-        teams = list(group_data['teams'])
-        
-        # Group assets by team
-        team_groups = defaultdict(list)
-        for asset in assets:
-            team_name = self._get_team_name(asset)
-            team_groups[team_name].append(asset)
-        
-        # Create team results
-        team_results = []
-        for team_name, team_assets in team_groups.items():
-            team_result = {
-                'team_name': team_name,
-                'total_team_assets': len(team_assets),
-                'assets': self._extract_asset_fields(team_assets, config)
-            }
-            team_results.append(team_result)
-        
-        return {
-            'cloud': parent_cloud,
-            'total_cloud_team': len(teams),
-            'total_cloud_assets': len(assets),
-            'team': team_results
-        }
-    
-    def _extract_asset_fields(self, assets: List[Dict], config) -> List[Dict]:
-        """Extract specified fields from assets"""
-        asset_fields = getattr(config, 'asset_fields', [])
-        cloud_fields = getattr(config, 'cloud_fields', [])
-        
-        extracted_assets = []
-        for asset in assets:
-            extracted_asset = {}
+            # First, let's check what columns are available in the assets table
+            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            available_columns = [col['name'] for col in columns_result] if columns_result else []
             
-            # Extract basic asset fields
-            for field in asset_fields:
-                extracted_asset[field] = asset.get(field, None)
+            # Get total assets
+            total_assets_result = self.reader.execute_query("SELECT COUNT(*) as total FROM assets")
+            total_assets = total_assets_result[0]['total'] if total_assets_result else 0
             
-            # Extract cloud-related fields
-            attributions = asset.get('assetAttributions', [])
-            if attributions and len(attributions) > 0:
-                attribution = attributions[0]
-                for field in cloud_fields:
-                    if field == 'parent_cloud':
-                        extracted_asset[field] = attribution.get('parentCloud', {}).get('name', 'Unknown')
-                    elif field == 'cloud':
-                        extracted_asset[field] = attribution.get('cloud', {}).get('name', 'Unknown')
-                    elif field == 'team':
-                        extracted_asset[field] = attribution.get('team', {}).get('name', 'Unknown')
-                    else:
-                        extracted_asset[field] = attribution.get(field, 'Unknown')
+            # Check for flattened attribution fields
+            parent_cloud_field = None
+            cloud_field = None
+            team_field = None
+            
+            for col in available_columns:
+                if 'parentCloud.name' in col or 'parent_cloud' in col:
+                    parent_cloud_field = col
+                elif 'cloud.name' in col or 'cloud' in col:
+                    cloud_field = col
+                elif 'team.name' in col or 'team' in col:
+                    team_field = col
+            
+            # Get total parent clouds (treating unknown/empty as "Zombie")
+            if parent_cloud_field:
+                try:
+                    total_parent_clouds_result = self.reader.execute_query(f"""
+                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie')) as total 
+                        FROM assets
+                    """)
+                    total_parent_clouds = total_parent_clouds_result[0]['total'] if total_parent_clouds_result else 0
+                except Exception as e:
+                    # If query fails, don't update the metric
+                    total_parent_clouds = 0
             else:
-                for field in cloud_fields:
-                    extracted_asset[field] = 'Unknown'
+                total_parent_clouds = 0
             
-            extracted_assets.append(extracted_asset)
+            # Get total clouds (treating unknown/empty as "Zombie")
+            if cloud_field:
+                try:
+                    total_clouds_result = self.reader.execute_query(f"""
+                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{cloud_field}", ''), 'Zombie')) as total 
+                        FROM assets
+                    """)
+                    total_clouds = total_clouds_result[0]['total'] if total_clouds_result else 0
+                except Exception as e:
+                    # If query fails, don't update the metric
+                    total_clouds = 0
+            else:
+                total_clouds = 0
+            
+            # Get total teams (treating unknown/empty as "Zombie")
+            if team_field:
+                try:
+                    total_teams_result = self.reader.execute_query(f"""
+                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{team_field}", ''), 'Zombie')) as total 
+                        FROM assets
+                    """)
+                    total_teams = total_teams_result[0]['total'] if total_teams_result else 0
+                except Exception as e:
+                    # If query fails, don't update the metric
+                    total_teams = 0
+            else:
+                total_teams = 0
+            
+            # Get total assets unowned
+            unowned_conditions = []
+            if parent_cloud_field:
+                unowned_conditions.append(f'("{parent_cloud_field}" IS NULL OR "{parent_cloud_field}" = \'\')')
+            if cloud_field:
+                unowned_conditions.append(f'("{cloud_field}" IS NULL OR "{cloud_field}" = \'\')')
+            if team_field:
+                unowned_conditions.append(f'("{team_field}" IS NULL OR "{team_field}" = \'\')')
+            
+            if unowned_conditions:
+                try:
+                    unowned_query = f"""
+                        SELECT COUNT(*) as total 
+                        FROM assets 
+                        WHERE {' AND '.join(unowned_conditions)}
+                    """
+                    total_assets_unowned_result = self.reader.execute_query(unowned_query)
+                    total_assets_unowned = total_assets_unowned_result[0]['total'] if total_assets_unowned_result else 0
+                except Exception as e:
+                    # If query fails, don't update the metric
+                    total_assets_unowned = 0
+            else:
+                total_assets_unowned = total_assets
+            
+            return {
+                'total_parent_cloud': total_parent_clouds,
+                'total_cloud': total_clouds,
+                'total_asset': total_assets,
+                'total_assets_unowned': total_assets_unowned,
+                'total_team': total_teams,
+                'debug_info': {
+                    'available_columns': available_columns,
+                    'parent_cloud_field': parent_cloud_field,
+                    'cloud_field': cloud_field,
+                    'team_field': team_field
+                }
+            }
+            
+        except Exception as e:
+            raise ValueError(f"Failed to get ownership summary: {str(e)}")
+    
+    def get_parent_cloud_distribution(self) -> List[Dict[str, Any]]:
+        """
+        Get ownership distribution by parent cloud using DuckDB SQL query.
         
-        return extracted_assets
+        Returns:
+            List of dictionaries containing parent_cloud, total_assets, and unowned_assets
+            
+        Raises:
+            ValueError: If reader is not initialized
+        """
+        if not self.reader:
+            raise ValueError("Reader not initialized. Call create_reader() first.")
+        
+        try:
+            # First, let's check what columns are available in the assets table
+            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            available_columns = [col['name'] for col in columns_result] if columns_result else []
+            
+            # Find the parent cloud field
+            parent_cloud_field = None
+            for col in available_columns:
+                if 'parentCloud.name' in col or 'parent_cloud' in col:
+                    parent_cloud_field = col
+                    break
+            
+            if not parent_cloud_field:
+                return []
+            
+            distribution_query = f"""
+                SELECT 
+                    COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie') as parent_cloud,
+                    COUNT(*) as total_assets,
+                    SUM(CASE 
+                        WHEN ("{parent_cloud_field}" IS NULL OR "{parent_cloud_field}" = '') 
+                        THEN 1 ELSE 0 
+                    END) as unowned_assets
+                FROM assets 
+                GROUP BY COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie')
+                ORDER BY total_assets DESC
+            """
+            
+            try:
+                return self.reader.execute_query(distribution_query)
+            except Exception as e:
+                # If query fails, return empty list to avoid updating metrics
+                return []
+            
+        except Exception as e:
+            raise ValueError(f"Failed to get parent cloud distribution: {str(e)}")
+    
+    def get_cloud_distribution(self) -> List[Dict[str, Any]]:
+        """
+        Get ownership distribution by cloud using DuckDB SQL query.
+        
+        Returns:
+            List of dictionaries containing cloud, total_assets, and unowned_assets
+            
+        Raises:
+            ValueError: If reader is not initialized
+        """
+        if not self.reader:
+            raise ValueError("Reader not initialized. Call create_reader() first.")
+        
+        try:
+            # First, let's check what columns are available in the assets table
+            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            available_columns = [col['name'] for col in columns_result] if columns_result else []
+            
+            # Find the cloud field
+            cloud_field = None
+            for col in available_columns:
+                if 'cloud.name' in col or 'cloud' in col:
+                    cloud_field = col
+                    break
+            
+            if not cloud_field:
+                return []
+            
+            distribution_query = f"""
+                SELECT 
+                    COALESCE(NULLIF("{cloud_field}", ''), 'Zombie') as cloud,
+                    COUNT(*) as total_assets,
+                    SUM(CASE 
+                        WHEN ("{cloud_field}" IS NULL OR "{cloud_field}" = '') 
+                        THEN 1 ELSE 0 
+                    END) as unowned_assets
+                FROM assets 
+                GROUP BY COALESCE(NULLIF("{cloud_field}", ''), 'Zombie')
+                ORDER BY total_assets DESC
+            """
+            
+            try:
+                return self.reader.execute_query(distribution_query)
+            except Exception as e:
+                # If query fails, return empty list to avoid updating metrics
+                return []
+            
+        except Exception as e:
+            raise ValueError(f"Failed to get cloud distribution: {str(e)}")
+    
+    def get_team_distribution(self) -> List[Dict[str, Any]]:
+        """
+        Get ownership distribution by team using DuckDB SQL query.
+        
+        Returns:
+            List of dictionaries containing team, total_assets, and unowned_assets
+            
+        Raises:
+            ValueError: If reader is not initialized
+        """
+        if not self.reader:
+            raise ValueError("Reader not initialized. Call create_reader() first.")
+        
+        try:
+            # First, let's check what columns are available in the assets table
+            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            available_columns = [col['name'] for col in columns_result] if columns_result else []
+            
+            # Find the team field
+            team_field = None
+            for col in available_columns:
+                if 'team.name' in col or 'team' in col:
+                    team_field = col
+                    break
+            
+            if not team_field:
+                return []
+            
+            distribution_query = f"""
+                SELECT 
+                    COALESCE(NULLIF("{team_field}", ''), 'Zombie') as team,
+                    COUNT(*) as total_assets,
+                    SUM(CASE 
+                        WHEN ("{team_field}" IS NULL OR "{team_field}" = '') 
+                        THEN 1 ELSE 0 
+                    END) as unowned_assets
+                FROM assets 
+                GROUP BY COALESCE(NULLIF("{team_field}", ''), 'Zombie')
+                ORDER BY total_assets DESC
+            """
+            
+            try:
+                return self.reader.execute_query(distribution_query)
+            except Exception as e:
+                # If query fails, return empty list to avoid updating metrics
+                return []
+            
+        except Exception as e:
+            raise ValueError(f"Failed to get team distribution: {str(e)}")
+    
