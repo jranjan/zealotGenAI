@@ -21,12 +21,11 @@ class OwnerAnalyser(AssetAnalyser):
         """Initialize the owner analyser."""
         super().__init__("owner")
     
-    def analyse_with_config(self, config, source_directory: str, result_directory: str) -> Dict[str, Any]:
+    def analyse(self, source_directory: str, result_directory: str) -> Dict[str, Any]:
         """
-        Analyze assets using configuration for ownership analysis.
+        Analyze assets for ownership analysis.
         
         Args:
-            config: Configuration object
             source_directory: Path to source directory
             result_directory: Path to result directory
             
@@ -352,3 +351,96 @@ class OwnerAnalyser(AssetAnalyser):
             
         except Exception as e:
             raise ValueError(f"Failed to get team distribution: {str(e)}")
+    
+    def get_mbu_distribution(self) -> List[Dict[str, Any]]:
+        """
+        Get ownership distribution by MBU (Management Business Unit) using DuckDB SQL query.
+        
+        Returns:
+            List of dictionaries containing mbu, total_assets, and unowned_assets
+            
+        Raises:
+            ValueError: If reader is not initialized
+        """
+        if not self.reader:
+            raise ValueError("Reader not initialized. Call create_reader() first.")
+        
+        try:
+            # First, let's check what columns are available in the assets table
+            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            available_columns = [col['name'] for col in columns_result] if columns_result else []
+            
+            # Debug: Print available columns to help diagnose the issue
+            print(f"🔍 Available columns in assets table: {available_columns}")
+            
+            # Find the MBU field - look for various possible field names
+            mbu_field = None
+            for col in available_columns:
+                if any(term in col.lower() for term in ['properties_mbu', 'mbu', 'properties.mbu']):
+                    mbu_field = col
+                    print(f"✅ Found MBU field: {mbu_field}")
+                    break
+            
+            if not mbu_field:
+                print("❌ No MBU field found. Available columns:", available_columns)
+                # Try to find any field that might contain MBU data
+                potential_mbu_fields = [col for col in available_columns if 'properties' in col.lower()]
+                if potential_mbu_fields:
+                    print(f"🔍 Potential MBU fields (properties-related): {potential_mbu_fields}")
+                    # Use the first properties field as a fallback
+                    mbu_field = potential_mbu_fields[0]
+                    print(f"🔄 Using fallback field: {mbu_field}")
+                else:
+                    return []
+            
+            # Check if the field is JSON or direct string
+            # Try to determine field type by checking if it contains JSON data
+            sample_query = f"SELECT \"{mbu_field}\" FROM assets LIMIT 1"
+            try:
+                sample_result = self.reader.execute_query(sample_query)
+                if sample_result and sample_result[0][mbu_field]:
+                    sample_value = sample_result[0][mbu_field]
+                    is_json = isinstance(sample_value, str) and (sample_value.startswith('{') or sample_value.startswith('['))
+                    print(f"🔍 Field '{mbu_field}' appears to be {'JSON' if is_json else 'direct string'}")
+                else:
+                    is_json = False
+            except:
+                is_json = False
+            
+            if is_json:
+                # Handle JSON field
+                distribution_query = f"""
+                    SELECT 
+                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Zombie') as mbu,
+                        COUNT(*) as total_assets,
+                        SUM(CASE 
+                            WHEN (JSON_EXTRACT_STRING("{mbu_field}", '$.mbu') IS NULL OR JSON_EXTRACT_STRING("{mbu_field}", '$.mbu') = '') 
+                            THEN 1 ELSE 0 
+                        END) as unowned_assets
+                    FROM assets 
+                    GROUP BY COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Zombie')
+                    ORDER BY total_assets DESC
+                """
+            else:
+                # Handle direct string field
+                distribution_query = f"""
+                    SELECT 
+                        COALESCE(NULLIF("{mbu_field}", ''), 'Zombie') as mbu,
+                        COUNT(*) as total_assets,
+                        SUM(CASE 
+                            WHEN ("{mbu_field}" IS NULL OR "{mbu_field}" = '') 
+                            THEN 1 ELSE 0 
+                        END) as unowned_assets
+                    FROM assets 
+                    GROUP BY COALESCE(NULLIF("{mbu_field}", ''), 'Zombie')
+                    ORDER BY total_assets DESC
+                """
+            
+            try:
+                return self.reader.execute_query(distribution_query)
+            except Exception as e:
+                # If query fails, return empty list to avoid updating metrics
+                return []
+            
+        except Exception as e:
+            raise ValueError(f"Failed to get MBU distribution: {str(e)}")

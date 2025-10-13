@@ -29,12 +29,11 @@ class AssetAnalyser(ABC):
         self.reader = None
     
     @abstractmethod
-    def analyse_with_config(self, config, source_directory: str, result_directory: str) -> Dict[str, Any]:
+    def analyse(self, source_directory: str, result_directory: str) -> Dict[str, Any]:
         """
-        Analyze assets using configuration.
+        Analyze assets.
         
         Args:
-            config: Configuration object
             source_directory: Path to source directory
             result_directory: Path to result directory
             

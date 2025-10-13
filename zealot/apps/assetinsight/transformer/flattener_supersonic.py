@@ -9,8 +9,14 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 from multiprocessing import Pool, cpu_count
 import time
+import warnings
+import logging
 from .flattener import Flattener
 from .utils.flattener_helper import FlattenerHelper
+
+# Suppress Streamlit warnings in multiprocessing workers
+warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 
 class SupersonicFlattener(Flattener):
@@ -192,6 +198,12 @@ def _process_single_file(file_path: str, target_dir: str) -> Dict[str, Any]:
     Returns:
         Dictionary with processing results
     """
+    # Suppress Streamlit warnings in worker process
+    import warnings
+    import logging
+    warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+    logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+    
     try:
         source_path = Path(file_path)
         target_path = Path(target_dir)
@@ -276,6 +288,12 @@ def _process_file_chunk(file_paths: List[str], target_dir: str) -> Dict[str, Any
     Returns:
         Dictionary with chunk processing results
     """
+    # Suppress Streamlit warnings in worker process
+    import warnings
+    import logging
+    warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+    logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+    
     chunk_results = []
     successful = 0
     failed = 0

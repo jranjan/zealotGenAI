@@ -13,7 +13,13 @@ Usage:
 
 import streamlit as st
 import sys
+import warnings
+import logging
 from pathlib import Path
+
+# Suppress Streamlit warnings about missing ScriptRunContext in multiprocessing
+warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 # Add the current directory to Python path
 current_dir = Path(__file__).parent
@@ -21,6 +27,7 @@ sys.path.insert(0, str(current_dir))
 
 # Import dashboard components
 from dashboard.tabs import SourceTab, NormaliserTab
+from dashboard.tabs.load import LoadTab
 from dashboard.tabs.analysis.ownership import OwnershipAnalyserTab
 
 
@@ -85,7 +92,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Main content area with tabs
-tab1, tab2, tab3 = st.tabs(["Source", "Transform", "Ownership"])
+tab1, tab2, tab3, tab4 = st.tabs(["Source", "Normalise", "Load", "Ownership"])
 
 with tab1:
     source_tab = SourceTab()
@@ -96,6 +103,10 @@ with tab2:
     normaliser_tab.render()
 
 with tab3:
+    load_tab = LoadTab()
+    load_tab.render()
+
+with tab4:
     ownership_tab = OwnershipAnalyserTab()
     ownership_tab.render()
 

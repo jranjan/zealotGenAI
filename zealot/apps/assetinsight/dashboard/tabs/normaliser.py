@@ -26,7 +26,7 @@ class NormaliserTab(BaseTab):
     
     def __init__(self):
         super().__init__(
-            tab_name="Transform",
+            tab_name="Normalise",
             description=""
         )
         # Use factory to create SupersonicFlattener for maximum performance (multiprocessing)
@@ -348,70 +348,25 @@ class NormaliserTab(BaseTab):
                 if 'error' in result:
                     self._render_error_message(f"Error: {result['error']}")
                 else:
-                    # Update progress for database setup
-                    status_text.text("🗄️ Setting up storage for analytic...")
-                    progress_bar.progress(0.95)
+                    # Update progress
+                    status_text.text("✅ Normalisation complete!")
+                    progress_bar.progress(1.0)
                     
-                    # Setup DuckDB database immediately after normalisation using Sonic reader
-                    try:
-                        from database.reader.factory import ReaderFactory
-                        
-                        # Use Sonic reader for maximum performance with multiprocessing
-                        readiness_result = ReaderFactory.create_sonic_reader(
-                            target_folder, 
-                            max_workers=multiprocessing.cpu_count(),  # Use all available cores
-                            batch_size=2000,
-                            memory_limit_gb=4.0
-                        )
-                        
-                        # Check if database setup was successful
-                        if not readiness_result.get('ready', False):
-                            raise Exception(f"Database setup failed: {readiness_result.get('error', 'Unknown error')}")
-                        
-                        # Extract database information from the result
-                        total_assets = readiness_result.get('object_count', 0)
-                        total_tables = readiness_result.get('table_count', 0)
-                        health_status = readiness_result.get('health_status', 'UNKNOWN')
-                        
-                        # Update session state with database info
-                        st.session_state.update({
-                            'normalised_data': {
-                                'target_folder': target_folder,
-                                'total_files': result['total_files'],
-                                'successful': result['successful'],
-                                'failed': result['failed'],
-                                'files': result.get('files', []),
-                                'total_assets': total_assets,
-                                'total_tables': total_tables,
-                                'health_status': health_status,
-                                'database_ready': True
-                            },
-                            'normaliser_complete': True
-                        })
-                        
-                        status_text.text("✅ Normalisation and database setup complete!")
-                        progress_bar.progress(1.0)
-                        
-                        self._render_success_message(f"Data normalisation complete! Sonic database ready with {total_assets:,} assets in {total_tables} table(s).")
-                        st.rerun()
-                        
-                    except Exception as db_error:
-                        # If database setup fails, still mark normalisation as complete
-                        st.session_state.update({
-                            'normalised_data': {
-                                'target_folder': target_folder,
-                                'total_files': result['total_files'],
-                                'successful': result['successful'],
-                                'failed': result['failed'],
-                                'files': result.get('files', []),
-                                'database_ready': False
-                            },
-                            'normaliser_complete': True
-                        })
-                        
-                        self._render_success_message("Data normalisation complete! (Sonic database setup will happen on first analysis)")
-                        st.warning(f"⚠️ Database setup failed: {str(db_error)}")
-                        st.rerun()
+                    # Update session state with normalisation results only (no database)
+                    st.session_state.update({
+                        'normalised_data': {
+                            'target_folder': target_folder,
+                            'total_files': result['total_files'],
+                            'successful': result['successful'],
+                            'failed': result['failed'],
+                            'files': result.get('files', []),
+                            'database_ready': False  # Database will be created in Load tab
+                        },
+                        'normaliser_complete': True
+                    })
+                    
+                    self._render_success_message("Data normalisation complete! Proceed to the Load tab to create the database.")
+                    st.rerun()
                     
         except Exception as e:
             self._render_error_message(f"Error during normalisation: {str(e)}")
@@ -426,21 +381,15 @@ class NormaliserTab(BaseTab):
         # Key metrics
         success_rate = (normalised_data['successful'] / normalised_data['total_files'] * 100) if normalised_data['total_files'] > 0 else 0
         
-        # Get total assets from database if available, otherwise calculate from files
-        if normalised_data.get('database_ready', False) and 'total_assets' in normalised_data:
-            total_assets = normalised_data['total_assets']
-            db_status = "✅ Ready"
-        else:
-            total_assets = sum(file_info.get('source_assets', 0) for file_info in normalised_data.get('files', []))
-            db_status = "📄 Files Only"
+        # Calculate total assets from files (database not created in Transform tab)
+        total_assets = sum(file_info.get('source_assets', 0) for file_info in normalised_data.get('files', []))
         
         metrics = {
             "📁 Files Processed": normalised_data['total_files'],
             "✅ Successful": normalised_data['successful'],
             "❌ Failed": normalised_data['failed'],
             "📊 Total Assets": f"{total_assets:,}",
-            "📈 Success Rate": f"{success_rate:.1f}%",
-            "🗄️ Database": db_status
+            "📈 Success Rate": f"{success_rate:.1f}%"
         }
         self._render_metrics(metrics)
         

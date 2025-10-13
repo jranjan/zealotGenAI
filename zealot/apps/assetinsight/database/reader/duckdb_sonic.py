@@ -17,6 +17,12 @@ import threading
 from queue import Queue
 import orjson  # Faster JSON parsing
 import psutil  # For memory monitoring
+import warnings
+import logging
+
+# Suppress Streamlit warnings in multiprocessing workers
+warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 from .duckdb import DuckDBReader
 
@@ -229,6 +235,12 @@ class DuckDBSonicReader(DuckDBReader):
         Returns:
             Tuple of (processed assets, processed file count)
         """
+        # Suppress Streamlit warnings in worker process
+        import warnings
+        import logging
+        warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+        logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+        
         assets = []
         processed_count = 0
         
@@ -551,6 +563,12 @@ class DuckDBSonicReader(DuckDBReader):
         Returns:
             List of data tuples ready for database insertion
         """
+        # Suppress Streamlit warnings in worker process
+        import warnings
+        import logging
+        warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+        logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+        
         if not asset_chunk:
             return []
         
@@ -591,6 +609,12 @@ class DuckDBSonicReader(DuckDBReader):
         if not asset_chunk:
             return None
         
+        # Suppress Streamlit warnings in worker process
+        import warnings
+        import logging
+        warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+        logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+        
         import tempfile
         import os
         
@@ -602,7 +626,8 @@ class DuckDBSonicReader(DuckDBReader):
         conn = duckdb.connect(temp_db_path)
         
         try:
-            # Create assets table
+            # Drop and create assets table
+            conn.execute("DROP TABLE IF EXISTS assets")
             conn.execute("""
                 CREATE TABLE assets (
                     id VARCHAR,
@@ -878,7 +903,12 @@ class DuckDBSonicReader(DuckDBReader):
         try:
             # Check if database connection exists
             if not hasattr(self, 'conn') or not self.conn:
-                result['error'] = "Sonic database connection not initialized"
+                # Check if JSON files exist but database not created yet
+                if result['json_files_found'] > 0:
+                    result['error'] = "JSON files found but database not created yet. Please run Transform tab first."
+                    result['health_status'] = 'FILES_ONLY'
+                else:
+                    result['error'] = "Sonic database connection not initialized"
                 return result
             
             # Query database health

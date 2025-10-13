@@ -46,8 +46,7 @@ class AnalyserCLI:
             print()
             
             # Run analysis
-            results = self.analyser.analyse_with_config(
-                config=self.config,
+            results = self.analyser.analyse(
                 source_directory=source_folder,
                 result_directory=output_folder
             )

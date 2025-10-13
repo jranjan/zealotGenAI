@@ -8,7 +8,13 @@ import multiprocessing
 from pathlib import Path
 from typing import Dict, Any, List, Set
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import warnings
+import logging
 from .base import Scanner
+
+# Suppress Streamlit warnings in multiprocessing workers
+warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 
 class SupersonicSourceScanner(Scanner):
@@ -179,6 +185,12 @@ class SupersonicSourceScanner(Scanner):
         Returns:
             Dictionary with file processing results
         """
+        # Suppress Streamlit warnings in worker process
+        import warnings
+        import logging
+        warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+        logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+        
         try:
             file_path_obj = Path(file_path)
             file_size = file_path_obj.stat().st_size
@@ -242,6 +254,12 @@ class SupersonicSourceScanner(Scanner):
         Returns:
             Dictionary with chunk processing results
         """
+        # Suppress Streamlit warnings in worker process
+        import warnings
+        import logging
+        warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+        logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+        
         chunk_results = []
         total_assets = 0
         all_asset_classes = set()

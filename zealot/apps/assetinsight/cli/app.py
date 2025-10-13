@@ -72,8 +72,7 @@ class AssetAnalyserApp:
         for asset_name in asset_names:
             try:
                 # Use the configured analyser
-                result = self.analyser.analyse_with_config(
-                    config=self.config,
+                result = self.analyser.analyse(
                     source_directory="data/source",  # This should come from config
                     result_directory="data/results"  # This should come from config
                 )
