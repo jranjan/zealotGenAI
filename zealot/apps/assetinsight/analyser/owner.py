@@ -183,14 +183,15 @@ class OwnerAnalyser(AssetAnalyser):
                     # If query fails, don't update the metric
                     total_assets_unowned = 0
             else:
-                total_assets_unowned = total_assets
+                # If no ownership fields are detected, assume all assets are owned
+                total_assets_unowned = 0
             
             return {
-                'total_parent_cloud': total_parent_clouds,
-                'total_cloud': total_clouds,
-                'total_asset': total_assets,
+                'total_parent_clouds': total_parent_clouds,
+                'total_clouds': total_clouds,
+                'total_assets': total_assets,
                 'total_assets_unowned': total_assets_unowned,
-                'total_team': total_teams,
+                'total_teams': total_teams,
                 'debug_info': {
                     'available_columns': available_columns,
                     'parent_cloud_field': parent_cloud_field,
@@ -370,38 +371,28 @@ class OwnerAnalyser(AssetAnalyser):
             columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
-            # Debug: Print available columns to help diagnose the issue
-            print(f"🔍 Available columns in assets table: {available_columns}")
-            
             # Find the MBU field - look for various possible field names
             mbu_field = None
             for col in available_columns:
                 if any(term in col.lower() for term in ['properties_mbu', 'mbu', 'properties.mbu']):
                     mbu_field = col
-                    print(f"✅ Found MBU field: {mbu_field}")
                     break
             
             if not mbu_field:
-                print("❌ No MBU field found. Available columns:", available_columns)
                 # Try to find any field that might contain MBU data
                 potential_mbu_fields = [col for col in available_columns if 'properties' in col.lower()]
                 if potential_mbu_fields:
-                    print(f"🔍 Potential MBU fields (properties-related): {potential_mbu_fields}")
-                    # Use the first properties field as a fallback
                     mbu_field = potential_mbu_fields[0]
-                    print(f"🔄 Using fallback field: {mbu_field}")
                 else:
                     return []
             
             # Check if the field is JSON or direct string
-            # Try to determine field type by checking if it contains JSON data
             sample_query = f"SELECT \"{mbu_field}\" FROM assets LIMIT 1"
             try:
                 sample_result = self.reader.execute_query(sample_query)
                 if sample_result and sample_result[0][mbu_field]:
                     sample_value = sample_result[0][mbu_field]
                     is_json = isinstance(sample_value, str) and (sample_value.startswith('{') or sample_value.startswith('['))
-                    print(f"🔍 Field '{mbu_field}' appears to be {'JSON' if is_json else 'direct string'}")
                 else:
                     is_json = False
             except:
@@ -411,28 +402,28 @@ class OwnerAnalyser(AssetAnalyser):
                 # Handle JSON field
                 distribution_query = f"""
                     SELECT 
-                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Zombie') as mbu,
+                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU') as mbu,
                         COUNT(*) as total_assets,
                         SUM(CASE 
                             WHEN (JSON_EXTRACT_STRING("{mbu_field}", '$.mbu') IS NULL OR JSON_EXTRACT_STRING("{mbu_field}", '$.mbu') = '') 
                             THEN 1 ELSE 0 
                         END) as unowned_assets
                     FROM assets 
-                    GROUP BY COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Zombie')
+                    GROUP BY COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU')
                     ORDER BY total_assets DESC
                 """
             else:
                 # Handle direct string field
                 distribution_query = f"""
                     SELECT 
-                        COALESCE(NULLIF("{mbu_field}", ''), 'Zombie') as mbu,
+                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
                         COUNT(*) as total_assets,
                         SUM(CASE 
                             WHEN ("{mbu_field}" IS NULL OR "{mbu_field}" = '') 
                             THEN 1 ELSE 0 
                         END) as unowned_assets
                     FROM assets 
-                    GROUP BY COALESCE(NULLIF("{mbu_field}", ''), 'Zombie')
+                    GROUP BY COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
                     ORDER BY total_assets DESC
                 """
             
@@ -444,3 +435,124 @@ class OwnerAnalyser(AssetAnalyser):
             
         except Exception as e:
             raise ValueError(f"Failed to get MBU distribution: {str(e)}")
+    
+    def get_bu_distribution(self) -> List[Dict[str, Any]]:
+        """
+        Get ownership distribution by BU (Business Unit) and MBU (Management Business Unit) using DuckDB SQL query.
+        
+        Returns:
+            List of dictionaries containing bu, mbu, total_assets, and unowned_assets
+            
+        Raises:
+            ValueError: If reader is not initialized
+        """
+        if not self.reader:
+            raise ValueError("Reader not initialized. Call create_reader() first.")
+        
+        try:
+            # First, let's check what columns are available in the assets table
+            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            available_columns = [col['name'] for col in columns_result] if columns_result else []
+            
+            # Find the BU and MBU fields - look for various possible field names
+            bu_field = None
+            mbu_field = None
+            
+            for col in available_columns:
+                if any(term in col.lower() for term in ['properties_bu', 'bu', 'properties.bu', 'business_unit']):
+                    bu_field = col
+                elif any(term in col.lower() for term in ['properties_mbu', 'mbu', 'properties.mbu']):
+                    mbu_field = col
+            
+            if not bu_field:
+                # Try to find any field that might contain BU data
+                potential_bu_fields = [col for col in available_columns if 'properties' in col.lower()]
+                if potential_bu_fields:
+                    bu_field = potential_bu_fields[0]
+                else:
+                    return []
+            
+            if not mbu_field:
+                # Try to find any field that might contain MBU data
+                potential_mbu_fields = [col for col in available_columns if 'properties' in col.lower()]
+                if potential_mbu_fields:
+                    mbu_field = potential_mbu_fields[0]
+                else:
+                    mbu_field = bu_field  # Use BU field as fallback
+            
+            # Check if the fields are JSON or direct string
+            sample_query = f"SELECT \"{bu_field}\", \"{mbu_field}\" FROM assets LIMIT 1"
+            try:
+                sample_result = self.reader.execute_query(sample_query)
+                if sample_result:
+                    bu_value = sample_result[0].get(bu_field, '')
+                    mbu_value = sample_result[0].get(mbu_field, '')
+                    bu_is_json = isinstance(bu_value, str) and (bu_value.startswith('{') or bu_value.startswith('['))
+                    mbu_is_json = isinstance(mbu_value, str) and (mbu_value.startswith('{') or mbu_value.startswith('['))
+                else:
+                    bu_is_json = False
+                    mbu_is_json = False
+            except:
+                bu_is_json = False
+                mbu_is_json = False
+            
+            if bu_is_json and mbu_is_json:
+                # Handle JSON fields for both BU and MBU
+                distribution_query = f"""
+                    SELECT 
+                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU') as bu,
+                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU') as mbu,
+                        COUNT(*) as total_assets,
+                        SUM(CASE 
+                            WHEN (JSON_EXTRACT_STRING("{bu_field}", '$.bu') IS NULL OR JSON_EXTRACT_STRING("{bu_field}", '$.bu') = '') 
+                            THEN 1 ELSE 0 
+                        END) as unowned_assets
+                    FROM assets 
+                    GROUP BY 
+                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU'),
+                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU')
+                    ORDER BY total_assets DESC
+                """
+            elif bu_is_json:
+                # Handle JSON field for BU, direct string for MBU
+                distribution_query = f"""
+                    SELECT 
+                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU') as bu,
+                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
+                        COUNT(*) as total_assets,
+                        SUM(CASE 
+                            WHEN (JSON_EXTRACT_STRING("{bu_field}", '$.bu') IS NULL OR JSON_EXTRACT_STRING("{bu_field}", '$.bu') = '') 
+                            THEN 1 ELSE 0 
+                        END) as unowned_assets
+                    FROM assets 
+                    GROUP BY 
+                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU'),
+                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
+                    ORDER BY total_assets DESC
+                """
+            else:
+                # Handle direct string fields for both BU and MBU
+                distribution_query = f"""
+                    SELECT 
+                        COALESCE(NULLIF("{bu_field}", ''), 'Unknown BU') as bu,
+                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
+                        COUNT(*) as total_assets,
+                        SUM(CASE 
+                            WHEN ("{bu_field}" IS NULL OR "{bu_field}" = '') 
+                            THEN 1 ELSE 0 
+                        END) as unowned_assets
+                    FROM assets 
+                    GROUP BY 
+                        COALESCE(NULLIF("{bu_field}", ''), 'Unknown BU'),
+                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
+                    ORDER BY total_assets DESC
+                """
+            
+            try:
+                return self.reader.execute_query(distribution_query)
+            except Exception as e:
+                # If query fails, return empty list to avoid updating metrics
+                return []
+            
+        except Exception as e:
+            raise ValueError(f"Failed to get BU distribution: {str(e)}")

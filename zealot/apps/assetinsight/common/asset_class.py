@@ -16,14 +16,14 @@ class AssetClass(Enum):
     that can be discovered, analyzed, and managed.
     """
     
-    # Core Infrastructure
+    # Scan Entity
     SERVER = ("server", "Server")
     NETWORK_DEVICE = ("network_device", "Network Device")
-    CONTAINERS = ("containers", "Containers")
+    RDS = ("aws_rds_instance", "RDS")
+    AWS_EC2 = ("aws_ec2_instance", "AWS EC2")
     
     # AWS Services
     AWS_ACCOUNT = ("aws_account", "AWS Account")
-    AWS_EC2 = ("aws_ec2_instance", "AWS EC2")
     AWS_EKS_CLUSTER = ("aws_eks_cluster", "AWS EKS")
     AWS_SQS = ("aws_sqs", "AWS SQS")
     

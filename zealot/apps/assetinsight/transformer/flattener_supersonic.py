@@ -1,18 +1,19 @@
 """
-SupersonicFlattener - High-performance multiprocessing data flattening operations
-Uses multiprocessing to bypass Python's GIL for maximum performance with large file counts
+SupersonicFlattener - High-performance multiprocessing data flattening using FlattenerHelper
+
+This module provides a high-performance multiprocessing flattener that leverages
+FlattenerHelper for all flattening operations while using multiprocessing Pool
+for maximum performance with large file counts.
 """
 
-import json
 import os
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from multiprocessing import Pool, cpu_count
 import time
 import warnings
 import logging
 from .flattener import Flattener
-from .utils.flattener_helper import FlattenerHelper
 
 # Suppress Streamlit warnings in multiprocessing workers
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
@@ -20,39 +21,59 @@ logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").set
 
 
 class SupersonicFlattener(Flattener):
-    """Supersonic-high-performance multiprocessing data flattening operations"""
+    """
+    High-performance multiprocessing flattener that uses FlattenerHelper for all operations.
+    
+    This class extends the base Flattener to provide maximum performance using
+    multiprocessing Pool while maintaining full compatibility with FlattenerHelper patterns.
+    """
     
     def __init__(self, max_workers: int = None, chunk_size: int = 100):
-        super().__init__()
-        self.max_workers = max_workers or min(cpu_count(), 16)  # Limit to prevent memory issues
-        self.chunk_size = chunk_size  # Process files in chunks to manage memory
-        self._temp_dir = None
-    
-    def transform_directory(self, source_dir: str, target_dir: str) -> Dict[str, Any]:
         """
-        Transform all JSON files in source directory using multiprocessing.
+        Initialize the SupersonicFlattener.
         
         Args:
-            source_dir: Source directory containing JSON files
-            target_dir: Target directory for transformed files
+            max_workers: Maximum number of worker processes (default: min(cpu_count, 16))
+            chunk_size: Number of files to process per chunk (default: 100)
+        """
+        super().__init__()
+        self.max_workers = max_workers or min(cpu_count(), 16)
+        self.chunk_size = chunk_size
+    
+    def transform_directory(self, source_folder: str, target_folder: str) -> Dict[str, Any]:
+        """
+        Transform all JSON files in a source directory using multiprocessing.
+        
+        Args:
+            source_folder: Path to source directory containing JSON files
+            target_folder: Path to target directory for flattened files
             
         Returns:
-            Dictionary with transformation results
+            Dictionary containing transformation results and statistics
         """
         start_time = time.time()
         
         # Use base class setup logic
-        setup_result = self.setup_directories(source_dir, target_dir)
+        setup_result = self.setup_directories(source_folder, target_folder)
         if not setup_result['success']:
             return setup_result
         
-        # Extract setup results
         source_path = setup_result['source_path']
         target_path = setup_result['target_path']
         json_files = setup_result['json_files']
         total_files = setup_result['total_files']
         
-        print(f"🚀 SupersonicFlattener: Processing {len(json_files)} files with {self.max_workers} processes")
+        if total_files == 0:
+            return {
+                'success': False,
+                'error': 'No JSON files found in source directory',
+                'total_files': 0,
+                'successful': 0,
+                'failed': 0,
+                'files': []
+            }
+        
+        print(f"🚀 SupersonicFlattener: Processing {total_files} files with {self.max_workers} processes")
         
         # Split files into chunks for processing
         file_chunks = [
@@ -67,7 +88,7 @@ class SupersonicFlattener(Flattener):
         # Process chunks in parallel using multiprocessing Pool
         with Pool(processes=self.max_workers) as pool:
             # Submit all chunks with target directory
-            chunk_args = [(chunk, target_dir) for chunk in file_chunks]
+            chunk_args = [(chunk, str(target_path)) for chunk in file_chunks]
             chunk_results = pool.starmap(_process_file_chunk, chunk_args)
             
             # Collect results
@@ -90,196 +111,27 @@ class SupersonicFlattener(Flattener):
             processing_time=processing_time
         )
     
-    
-    def transform_file(self, source_file: str, target_file: str) -> bool:
-        """
-        Transform a single JSON file.
-        
-        Args:
-            source_file: Path to source JSON file
-            target_file: Path to target JSON file
-            
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            Path(target_file).parent.mkdir(parents=True, exist_ok=True)
-            result = self._process_single_file(source_file, str(Path(target_file).parent))
-            return result['success']
-        except Exception as e:
-            print(f"Error transforming file {source_file}: {e}")
-            return False
-    
-    def _process_single_file(self, file_path: str, target_dir: str) -> Dict[str, Any]:
-        """
-        Process a single JSON file and create flattened version.
-        
-        Args:
-            file_path: Path to source JSON file
-            target_dir: Target directory for output
-            
-        Returns:
-            Dictionary with processing results
-        """
-        try:
-            source_path = Path(file_path)
-            target_path = Path(target_dir)
-            
-            # Create flattened filename
-            flattened_filename = f"{source_path.stem}_flattened.json"
-            output_path = target_path / flattened_filename
-            
-            # Load and normalize JSON data using base class method
-            assets = self._load_and_normalize_json(file_path)
-            
-            # Flatten assets with analysis using base class method
-            flattened_assets, missing_attribution, missing_properties, missing_name, missing_parent_cloud = self._flatten_assets_with_analysis(assets)
-            
-            # Save flattened data
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(flattened_assets, f, indent=2, ensure_ascii=False)
-            
-            return self.create_file_result(
-                success=True,
-                file_path=str(source_path),
-                input=str(source_path),
-                output=str(output_path),
-                source_assets=len(assets),
-                normalised_assets=len(flattened_assets),
-                missing_attribution=missing_attribution,
-                missing_properties=missing_properties,
-                missing_name=missing_name,
-                missing_parent_cloud=missing_parent_cloud
-            )
-            
-        except Exception as e:
-            return self.create_file_result(
-                success=False,
-                file_path=file_path,
-                error=str(e),
-                input=file_path,
-                output=None,
-                source_assets=0,
-                normalised_assets=0,
-                missing_attribution=0,
-                missing_properties=0
-            )
-    
     def get_performance_info(self) -> Dict[str, Any]:
-        """Get performance information about the flattener"""
+        """
+        Get performance information about the SupersonicFlattener.
+        
+        Returns:
+            Dictionary containing performance information
+        """
         return {
+            'flattener_type': 'SupersonicFlattener (Multiprocessing)',
+            'uses_flattener_helper': True,
+            'optimized': True,
             'max_workers': self.max_workers,
             'chunk_size': self.chunk_size,
-            'cpu_count': cpu_count(),
-            'flattener_type': 'SupersonicFlattener (Multiprocessing)'
+            'cpu_count': cpu_count()
         }
     
 
 
-def _create_file_result(success: bool, file_path: str, error: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-    """Helper function to create file result (for multiprocessing compatibility)."""
-    result = {
-        'success': success,
-        'file': file_path,
-        'error': error
-    }
-    result.update(kwargs)
-    return result
-
-def _process_single_file(file_path: str, target_dir: str) -> Dict[str, Any]:
-    """
-    Process a single JSON file and create flattened version.
-    This function runs in a separate process.
-    
-    Args:
-        file_path: Path to source JSON file
-        target_dir: Target directory for output
-        
-    Returns:
-        Dictionary with processing results
-    """
-    # Suppress Streamlit warnings in worker process
-    import warnings
-    import logging
-    warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
-    logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
-    
-    try:
-        source_path = Path(file_path)
-        target_path = Path(target_dir)
-        
-        # Create flattened filename
-        flattened_filename = f"{source_path.stem}_flattened.json"
-        output_path = target_path / flattened_filename
-        
-        # Load and normalize JSON data
-        with open(source_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-        
-        assets = data if isinstance(data, list) else [data]
-        
-        # Flatten each asset using FlattenerHelper
-        flattened_assets = []
-        missing_attribution = 0
-        missing_properties = 0
-        missing_name = 0
-        
-        for asset in assets:
-            if not isinstance(asset, dict):
-                continue
-            
-            # Check for missing attribution
-            if 'assetAttributions' not in asset or not asset['assetAttributions']:
-                missing_attribution += 1
-            
-            # Check for missing properties
-            if 'properties' not in asset or not asset['properties']:
-                missing_properties += 1
-            
-            # Check for missing name
-            name_value = asset.get('name')
-            if not name_value or str(name_value).strip() in ['', 'None', 'null']:
-                missing_name += 1
-            
-            # Flatten the asset using FlattenerHelper
-            flattened_asset = FlattenerHelper.flatten_asset(asset)
-            flattened_assets.append(flattened_asset)
-        
-        # Save flattened data
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(flattened_assets, f, indent=2, ensure_ascii=False)
-        
-        return _create_file_result(
-            success=True,
-            file_path=str(source_path),
-            input=str(source_path),
-            output=str(output_path),
-            source_assets=len(assets),
-            normalised_assets=len(flattened_assets),
-            missing_attribution=missing_attribution,
-            missing_properties=missing_properties,
-            missing_name=missing_name
-        )
-        
-    except Exception as e:
-        return _create_file_result(
-            success=False,
-            file_path=file_path,
-            error=str(e),
-            input=file_path,
-            output=None,
-            source_assets=0,
-            normalised_assets=0,
-            missing_attribution=0,
-            missing_properties=0
-        )
-
-
-
-
 def _process_file_chunk(file_paths: List[str], target_dir: str) -> Dict[str, Any]:
     """
-    Process a chunk of files in a single process.
+    Process a chunk of files in a single process using FlattenerHelper.
     
     Args:
         file_paths: List of file paths to process
@@ -291,6 +143,10 @@ def _process_file_chunk(file_paths: List[str], target_dir: str) -> Dict[str, Any
     # Suppress Streamlit warnings in worker process
     import warnings
     import logging
+    import json
+    from pathlib import Path
+    from .utils.flattener_helper import FlattenerHelper
+    
     warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
     logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
     
@@ -299,12 +155,95 @@ def _process_file_chunk(file_paths: List[str], target_dir: str) -> Dict[str, Any
     failed = 0
     
     for file_path in file_paths:
-        result = _process_single_file(file_path, target_dir)
-        chunk_results.append(result)
-        
-        if result['success']:
+        try:
+            source_path = Path(file_path)
+            target_path = Path(target_dir)
+            
+            # Create flattened filename
+            flattened_filename = f"{source_path.stem}_flattened.json"
+            output_path = target_path / flattened_filename
+            
+            # Load and normalize JSON data
+            with open(source_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            assets = data if isinstance(data, list) else [data]
+            
+            # Flatten each asset using FlattenerHelper
+            flattened_assets = []
+            missing_attribution = 0
+            missing_properties = 0
+            missing_name = 0
+            missing_parent_cloud = 0
+            
+            for asset in assets:
+                if not isinstance(asset, dict):
+                    continue
+                
+                # Check for missing attribution
+                if 'assetAttributions' not in asset or not asset['assetAttributions']:
+                    missing_attribution += 1
+                
+                # Check for missing properties
+                if 'properties' not in asset or not asset['properties']:
+                    missing_properties += 1
+                
+                # Check for missing name
+                name_value = asset.get('name')
+                if not name_value or str(name_value).strip() in ['', 'None', 'null']:
+                    missing_name += 1
+                
+                # Check for missing parent cloud
+                has_parent_cloud = False
+                if 'assetAttributions' in asset and asset['assetAttributions']:
+                    for attr in asset['assetAttributions']:
+                        if attr and isinstance(attr, dict) and 'parentCloud' in attr and attr['parentCloud']:
+                            has_parent_cloud = True
+                            break
+                
+                if not has_parent_cloud:
+                    missing_parent_cloud += 1
+                
+                # Flatten the asset using FlattenerHelper
+                flattened_asset = FlattenerHelper.flatten_asset(asset)
+                flattened_assets.append(flattened_asset)
+            
+            # Save flattened data
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(flattened_assets, f, indent=2, ensure_ascii=False)
+            
+            result = {
+                'success': True,
+                'file_path': str(source_path),
+                'input': str(source_path),
+                'output': str(output_path),
+                'source_assets': len(assets),
+                'normalised_assets': len(flattened_assets),
+                'missing_attribution': missing_attribution,
+                'missing_properties': missing_properties,
+                'missing_name': missing_name,
+                'missing_parent_cloud': missing_parent_cloud
+            }
+            
+            chunk_results.append(result)
             successful += 1
-        else:
+            
+        except Exception as e:
+            result = {
+                'success': False,
+                'file_path': file_path,
+                'error': str(e),
+                'input': file_path,
+                'output': None,
+                'source_assets': 0,
+                'normalised_assets': 0,
+                'missing_attribution': 0,
+                'missing_properties': 0,
+                'missing_name': 0,
+                'missing_parent_cloud': 0
+            }
+            
+            chunk_results.append(result)
             failed += 1
     
     return {

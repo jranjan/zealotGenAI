@@ -51,6 +51,7 @@ class ReaderFactory:
             Dictionary with success/error information and performance stats
         """
         try:
+            # DuckDBSonicReader extends DuckDBReader and inherits singleton pattern
             reader = DuckDBSonicReader(folder_path, max_workers, batch_size, memory_limit_gb)
             readiness_result = reader.check_data_readiness()
             

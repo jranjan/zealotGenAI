@@ -2,8 +2,8 @@
 ConfigReader package for reading configuration files
 """
 
-from .assetfield import AssetFieldConfig
+from .schema import SchemaGuide
 
 __all__ = [
-    'AssetFieldConfig'
+    'SchemaGuide'
 ]
