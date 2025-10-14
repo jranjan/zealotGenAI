@@ -26,7 +26,7 @@ class NormaliserTab(BaseTab):
     
     def __init__(self):
         super().__init__(
-            tab_name="Transform",
+            tab_name="Normalise",
             description=""
         )
         # Use factory to create SupersonicFlattener for maximum performance (multiprocessing)
@@ -91,192 +91,7 @@ class NormaliserTab(BaseTab):
         
         # Set target folder to None (auto-generate)
         self.target_folder = None
-    
-    
-    def _render_flattened_keys_analysis(self):
-        """Render file selector and key mapping analysis"""
-        normalised_data = st.session_state.get('normalised_data')
-        if not normalised_data or not normalised_data.get('files'):
-            return
-        
-        # Get the output folder from the first processed file
-        first_file = normalised_data['files'][0]
-        output_folder = Path(first_file['output']).parent
-        
-        # Get source folder from session state
-        source_data = st.session_state.get('source_data', {})
-        source_folder = source_data.get('source_folder', '')
-        
 
-        # File selector
-        output_files = list(Path(output_folder).glob("*.json"))
-        if not output_files:
-            st.warning("No flattened files found in output directory")
-            return
-        
-        # Create file selection dropdown with original and flattened file names
-        file_options = []
-        file_mapping = {}
-        
-        for output_file in output_files:
-            # Extract original filename from flattened filename
-            # Handle both formats: "originalname_flattened.json" and "flattened_originalname.json"
-            if output_file.stem.startswith('flattened_'):
-                original_name = output_file.stem.replace('flattened_', '')
-            else:
-                original_name = output_file.stem.replace('_flattened', '')
-            
-            display_name = f"{original_name} → {output_file.name}"
-            file_options.append(display_name)
-            file_mapping[display_name] = output_file.name
-        
-        selected_file_display = st.selectbox(
-            "Select a flattened file to analyze:",
-            file_options,
-            key="file_selector"
-        )
-        
-        if selected_file_display:
-            selected_file = file_mapping[selected_file_display]
-        
-        if selected_file:
-            # Find corresponding source file
-            source_file = None
-            # Extract original filename from flattened filename for better matching
-            if selected_file.startswith('flattened_'):
-                original_name = selected_file.replace('flattened_', '').replace('.json', '')
-            else:
-                original_name = selected_file.replace('_flattened.json', '')
-            
-            for f in Path(source_folder).glob("*.json"):
-                if f.stem == original_name:
-                    source_file = f
-                    break
-            
-            if source_file:
-                self._render_asset_selector(str(source_file), str(output_folder / selected_file))
-            else:
-                st.warning(f"Could not find corresponding source file for {selected_file}")
-                st.info(f"Looking for: {original_name}")
-                st.info(f"Available files: {[f.name for f in Path(source_folder).glob('*.json')]}")
-    
-    def _render_asset_selector(self, source_file_path: str, flattened_file_path: str):
-        """Render asset selector and key mapping analysis"""
-        try:
-            # Load source data
-            with open(source_file_path, 'r', encoding='utf-8') as f:
-                source_data = json.load(f)
-            
-            # Load flattened data
-            with open(flattened_file_path, 'r', encoding='utf-8') as f:
-                flattened_data = json.load(f)
-            
-            # Check if data is a list of assets
-            if isinstance(source_data, list) and len(source_data) > 1:
-                
-                # Create asset selection dropdown (show only asset ID)
-                asset_options = []
-                for i, asset in enumerate(source_data):
-                    asset_id = asset.get('id', f'asset_{i+1}')
-                    asset_options.append(asset_id)
-                
-                selected_asset_idx = st.selectbox(
-                    "Choose an asset:",
-                    range(len(source_data)),
-                    format_func=lambda x: asset_options[x],
-                    key="asset_selector"
-                )
-                
-                if selected_asset_idx is not None:
-                    self._render_asset_key_mapping(source_file_path, flattened_file_path, selected_asset_idx)
-            else:
-                # Single asset or not a list
-                asset_data = source_data[0] if isinstance(source_data, list) else source_data
-                self._render_asset_key_mapping(source_file_path, flattened_file_path, 0)
-                
-        except Exception as e:
-            st.error(f"Error loading file: {str(e)}")
-    
-    def _render_asset_key_mapping(self, source_file_path: str, flattened_file_path: str, asset_index: int = 0):
-        """Render key mapping for a specific asset"""
-        try:
-            
-            # Use the analyser to get all processing done
-            result = self.transformer.get_asset_key_mappings(source_file_path, flattened_file_path, asset_index)
-            
-            if not result.get('success', False):
-                st.error(f"Error analyzing asset: {result.get('error', 'Unknown error')}")
-                return
-                
-        except Exception as e:
-            st.error(f"Error calling get_asset_key_mappings: {str(e)}")
-            return
-        
-        mappings = result.get('mappings', [])
-        summary = result.get('summary', {})
-        asset_info = result.get('asset_info', {})
-        
-        # Debug information
-        st.info(f"🔍 Debug: Found {len(mappings)} mappings for asset {asset_info.get('id', 'Unknown')}")
-        
-        if mappings:
-            asset_name = f"{asset_info['name']} ({asset_info['asset_class']}) - {asset_info['id']}"
-            
-            # Add summary metrics as a two-column table
-            summary_data = {
-                'Metric': ['Total Transformations', 'Direct Values', 'Objects', 'Arrays', 'Missing Attribution', 'Missing Properties', 'Has Name', 'Has Parent Cloud'],
-                'Count': [summary['total_mappings'], summary['direct_values'], summary['objects'], summary['arrays'], 
-                         summary.get('missing_attribution', False),
-                         summary.get('missing_properties', False),
-                         summary.get('has_name', False),
-                         summary.get('has_parent_cloud', False)]
-            }
-            
-            df_summary = safe_dataframe(summary_data)
-            st.dataframe(
-                df_summary, 
-                width='content', 
-                hide_index=True,
-                column_config={
-                    col: st.column_config.TextColumn(
-                        col,
-                        help=f"Shows {col.lower()} information"
-                    )
-                    for col in df_summary.columns
-                }
-            )
-            
-            # Create key-value table data (show all fields)
-            table_data = []
-            for mapping in mappings:
-                table_data.append({
-                    'Key': mapping['flattened_key'],
-                    'Value': str(mapping.get('value', ''))
-                })
-            
-            df = safe_dataframe(table_data)
-            
-            # Configure column display
-            st.dataframe(
-                df, 
-                width='stretch', 
-                hide_index=True,
-                column_config={
-                    "Key": st.column_config.TextColumn(
-                        "Key",
-                        help="The flattened key name",
-                        width="large"
-                    ),
-                    "Value": st.column_config.TextColumn(
-                        "Value",
-                        help="The actual value stored in this key",
-                        width="xlarge"
-                    )
-                }
-            )
-        else:
-            st.info("No key mappings found for this asset")
-    
     def _normalise_data(self):
         """Normalise data and update session state"""
         source_data = st.session_state.get('source_data', {})
@@ -323,8 +138,6 @@ class NormaliserTab(BaseTab):
             self._render_error_message("❌ Cannot create files in the assetinsight directory. Please specify a proper output directory.")
             return
         
-        # Note: No automatic cleanup - timestamped directories keep things organized
-        
         try:
             # Create a progress container for better feedback
             progress_container = st.container()
@@ -348,70 +161,25 @@ class NormaliserTab(BaseTab):
                 if 'error' in result:
                     self._render_error_message(f"Error: {result['error']}")
                 else:
-                    # Update progress for database setup
-                    status_text.text("🗄️ Setting up storage for analytic...")
-                    progress_bar.progress(0.95)
+                    # Update progress
+                    status_text.text("✅ Normalisation complete!")
+                    progress_bar.progress(1.0)
                     
-                    # Setup DuckDB database immediately after normalisation using Sonic reader
-                    try:
-                        from database.reader.factory import ReaderFactory
-                        
-                        # Use Sonic reader for maximum performance with multiprocessing
-                        readiness_result = ReaderFactory.create_sonic_reader(
-                            target_folder, 
-                            max_workers=multiprocessing.cpu_count(),  # Use all available cores
-                            batch_size=2000,
-                            memory_limit_gb=4.0
-                        )
-                        
-                        # Check if database setup was successful
-                        if not readiness_result.get('ready', False):
-                            raise Exception(f"Database setup failed: {readiness_result.get('error', 'Unknown error')}")
-                        
-                        # Extract database information from the result
-                        total_assets = readiness_result.get('object_count', 0)
-                        total_tables = readiness_result.get('table_count', 0)
-                        health_status = readiness_result.get('health_status', 'UNKNOWN')
-                        
-                        # Update session state with database info
-                        st.session_state.update({
-                            'normalised_data': {
-                                'target_folder': target_folder,
-                                'total_files': result['total_files'],
-                                'successful': result['successful'],
-                                'failed': result['failed'],
-                                'files': result.get('files', []),
-                                'total_assets': total_assets,
-                                'total_tables': total_tables,
-                                'health_status': health_status,
-                                'database_ready': True
-                            },
-                            'normaliser_complete': True
-                        })
-                        
-                        status_text.text("✅ Normalisation and database setup complete!")
-                        progress_bar.progress(1.0)
-                        
-                        self._render_success_message(f"Data normalisation complete! Sonic database ready with {total_assets:,} assets in {total_tables} table(s).")
-                        st.rerun()
-                        
-                    except Exception as db_error:
-                        # If database setup fails, still mark normalisation as complete
-                        st.session_state.update({
-                            'normalised_data': {
-                                'target_folder': target_folder,
-                                'total_files': result['total_files'],
-                                'successful': result['successful'],
-                                'failed': result['failed'],
-                                'files': result.get('files', []),
-                                'database_ready': False
-                            },
-                            'normaliser_complete': True
-                        })
-                        
-                        self._render_success_message("Data normalisation complete! (Sonic database setup will happen on first analysis)")
-                        st.warning(f"⚠️ Database setup failed: {str(db_error)}")
-                        st.rerun()
+                    # Update session state with normalisation results only (no database)
+                    st.session_state.update({
+                        'normalised_data': {
+                            'target_folder': target_folder,
+                            'total_files': result['total_files'],
+                            'successful': result['successful'],
+                            'failed': result['failed'],
+                            'files': result.get('files', []),
+                            'database_ready': False  # Database will be created in Load tab
+                        },
+                        'normaliser_complete': True
+                    })
+                    
+                    self._render_success_message("Data normalisation complete! Proceed to the Load tab to create the database.")
+                    st.rerun()
                     
         except Exception as e:
             self._render_error_message(f"Error during normalisation: {str(e)}")
@@ -426,21 +194,15 @@ class NormaliserTab(BaseTab):
         # Key metrics
         success_rate = (normalised_data['successful'] / normalised_data['total_files'] * 100) if normalised_data['total_files'] > 0 else 0
         
-        # Get total assets from database if available, otherwise calculate from files
-        if normalised_data.get('database_ready', False) and 'total_assets' in normalised_data:
-            total_assets = normalised_data['total_assets']
-            db_status = "✅ Ready"
-        else:
-            total_assets = sum(file_info.get('source_assets', 0) for file_info in normalised_data.get('files', []))
-            db_status = "📄 Files Only"
+        # Calculate total assets from files (database not created in Transform tab)
+        total_assets = sum(file_info.get('source_assets', 0) for file_info in normalised_data.get('files', []))
         
         metrics = {
             "📁 Files Processed": normalised_data['total_files'],
             "✅ Successful": normalised_data['successful'],
             "❌ Failed": normalised_data['failed'],
             "📊 Total Assets": f"{total_assets:,}",
-            "📈 Success Rate": f"{success_rate:.1f}%",
-            "🗄️ Database": db_status
+            "📈 Success Rate": f"{success_rate:.1f}%"
         }
         self._render_metrics(metrics)
         
@@ -467,6 +229,123 @@ class NormaliserTab(BaseTab):
         
         st.markdown("---")
         
-        # Flattened Keys Analysis
-        self._render_flattened_keys_analysis()
+        # File and Asset Selector
+        self._render_file_asset_selector()
     
+    def _render_file_asset_selector(self):
+        """Render file and asset selector with JSON content display"""
+        normalised_data = st.session_state.get('normalised_data')
+        if not normalised_data or not normalised_data.get('files'):
+            return
+        
+        st.markdown("### 📁 Normalised Assets Explorer")
+        
+        # Get the output folder from the first processed file
+        first_file = normalised_data['files'][0]
+        output_folder = Path(first_file['output']).parent
+        
+        # Get source folder from session state
+        source_data = st.session_state.get('source_data', {})
+        source_folder = source_data.get('source_folder', '')
+        
+        # File selector
+        output_files = list(Path(output_folder).glob("*.json"))
+        if not output_files:
+            st.warning("No flattened files found in output directory")
+            return
+        
+        # Create file selection dropdown
+        file_options = []
+        file_mapping = {}
+        
+        for output_file in output_files:
+            # Extract original filename from flattened filename
+            if output_file.stem.startswith('flattened_'):
+                original_name = output_file.stem.replace('flattened_', '')
+            else:
+                original_name = output_file.stem.replace('_flattened', '')
+            
+            display_name = f"{original_name} → {output_file.name}"
+            file_options.append(display_name)
+            file_mapping[display_name] = output_file.name
+        
+        selected_file_display = st.selectbox(
+            "Select a flattened file to explore:",
+            file_options,
+            key="file_selector"
+        )
+        
+        if selected_file_display:
+            selected_file = file_mapping[selected_file_display]
+            
+            # Find corresponding source file
+            source_file = None
+            if selected_file.startswith('flattened_'):
+                original_name = selected_file.replace('flattened_', '').replace('.json', '')
+            else:
+                original_name = selected_file.replace('_flattened.json', '')
+            
+            for f in Path(source_folder).glob("*.json"):
+                if f.stem == original_name:
+                    source_file = f
+                    break
+            
+            if source_file:
+                self._render_asset_selector(str(source_file), str(output_folder / selected_file))
+            else:
+                st.warning(f"Could not find corresponding source file for {selected_file}")
+    
+    def _render_asset_selector(self, source_file_path: str, flattened_file_path: str):
+        """Render asset selector and JSON content display"""
+        try:
+            # Load source data
+            with open(source_file_path, 'r', encoding='utf-8') as f:
+                source_data = json.load(f)
+            
+            # Load flattened data
+            with open(flattened_file_path, 'r', encoding='utf-8') as f:
+                flattened_data = json.load(f)
+            
+            # Check if data is a list of assets
+            if isinstance(source_data, list) and len(source_data) > 1:
+                # Create asset selection dropdown (show asset ID and name)
+                asset_options = []
+                for i, asset in enumerate(source_data):
+                    asset_id = asset.get('id', f'asset_{i+1}')
+                    asset_name = asset.get('name', 'Unknown')
+                    asset_class = asset.get('assetClass', 'Unknown')
+                    display_name = f"{asset_id} - {asset_name} ({asset_class})"
+                    asset_options.append(display_name)
+                
+                selected_asset_idx = st.selectbox(
+                    "Choose an asset to view:",
+                    range(len(source_data)),
+                    format_func=lambda x: asset_options[x],
+                    key="asset_selector"
+                )
+                
+                if selected_asset_idx is not None:
+                    self._render_asset_content(source_data[selected_asset_idx], flattened_data[selected_asset_idx])
+            else:
+                # Single asset or not a list
+                asset_data = source_data[0] if isinstance(source_data, list) else source_data
+                flattened_asset = flattened_data[0] if isinstance(flattened_data, list) else flattened_data
+                self._render_asset_content(asset_data, flattened_asset)
+                
+        except Exception as e:
+            st.error(f"Error loading file: {str(e)}")
+    
+    def _render_asset_content(self, source_asset: dict, flattened_asset: dict):
+        """Render the complete JSON content of the selected asset"""
+        st.markdown("---")
+        
+        # Create two columns for source and flattened data
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("#### 🔍 Original Asset")
+            st.json(source_asset)
+        
+        with col2:
+            st.markdown("#### 🔧 Flattened Asset")
+            st.json(flattened_asset)

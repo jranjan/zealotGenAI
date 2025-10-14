@@ -28,11 +28,10 @@ class OwnershipAnalyserTab(BaseTab):
     
     def _render_content(self):
         """Render ownership analysis UI as standalone tab"""
-        # Get the normalised data directory from session state
-        normalised_data = st.session_state.get('normalised_data', {})
-        target_folder = normalised_data.get('target_folder')
+        # Get the database path from session state (set by Load tab)
+        target_folder = st.session_state.get('database_path')
         
-        # Directory input
+        # Directory input (fallback if not set by Load tab)
         if not target_folder:
             target_folder = st.text_input(
                 "Enter path to normalised data directory:",
@@ -70,6 +69,14 @@ class OwnershipAnalyserTab(BaseTab):
             if st.button("Team Analysis", type="primary", use_container_width=True):
                 st.session_state['run_team_analysis'] = True
                 st.rerun()
+            
+            if st.button("MBU Analysis", type="primary", use_container_width=True):
+                st.session_state['run_mbu_analysis'] = True
+                st.rerun()
+            
+            if st.button("BU Analysis", type="primary", use_container_width=True):
+                st.session_state['run_bu_analysis'] = True
+                st.rerun()
         
         # Right pane: Analysis results in tabs
         with right_col:
@@ -82,35 +89,63 @@ class OwnershipAnalyserTab(BaseTab):
             # Handle specific analysis button clicks and store results
             if st.session_state.get('run_ownership_summary', False):
                 st.session_state['run_ownership_summary'] = False
-                if target_folder:
+                if target_folder and st.session_state.get('database_ready', False):
                     result = self._get_ownership_summary_result(target_folder)
                     st.session_state.analysis_results['ownership_summary'] = result
-                else:
+                elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
+                else:
+                    st.warning("⚠️ Database not loaded. Please complete the Load tab first.")
             
             if st.session_state.get('run_parent_cloud_analysis', False):
                 st.session_state['run_parent_cloud_analysis'] = False
-                if target_folder:
+                if target_folder and st.session_state.get('database_ready', False):
                     result = self._get_parent_cloud_analysis_result(target_folder)
                     st.session_state.analysis_results['parent_cloud_analysis'] = result
-                else:
+                elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
+                else:
+                    st.warning("⚠️ Database not loaded. Please complete the Load tab first.")
             
             if st.session_state.get('run_cloud_analysis', False):
                 st.session_state['run_cloud_analysis'] = False
-                if target_folder:
+                if target_folder and st.session_state.get('database_ready', False):
                     result = self._get_cloud_analysis_result(target_folder)
                     st.session_state.analysis_results['cloud_analysis'] = result
-                else:
+                elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
+                else:
+                    st.warning("⚠️ Database not loaded. Please complete the Load tab first.")
             
             if st.session_state.get('run_team_analysis', False):
                 st.session_state['run_team_analysis'] = False
-                if target_folder:
+                if target_folder and st.session_state.get('database_ready', False):
                     result = self._get_team_analysis_result(target_folder)
                     st.session_state.analysis_results['team_analysis'] = result
-                else:
+                elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
+                else:
+                    st.warning("⚠️ Database not loaded. Please complete the Load tab first.")
+            
+            if st.session_state.get('run_mbu_analysis', False):
+                st.session_state['run_mbu_analysis'] = False
+                if target_folder and st.session_state.get('database_ready', False):
+                    result = self._get_mbu_analysis_result(target_folder)
+                    st.session_state.analysis_results['mbu_analysis'] = result
+                elif not target_folder:
+                    st.warning("⚠️ Please provide a data directory path")
+                else:
+                    st.warning("⚠️ Database not loaded. Please complete the Load tab first.")
+            
+            if st.session_state.get('run_bu_analysis', False):
+                st.session_state['run_bu_analysis'] = False
+                if target_folder and st.session_state.get('database_ready', False):
+                    result = self._get_bu_analysis_result(target_folder)
+                    st.session_state.analysis_results['bu_analysis'] = result
+                elif not target_folder:
+                    st.warning("⚠️ Please provide a data directory path")
+                else:
+                    st.warning("⚠️ Database not loaded. Please complete the Load tab first.")
             
             # Create tabs for each analysis result
             if st.session_state.analysis_results:
@@ -128,6 +163,10 @@ class OwnershipAnalyserTab(BaseTab):
                         tab_names.append("Cloud")
                     elif analysis == 'team_analysis':
                         tab_names.append("Team")
+                    elif analysis == 'mbu_analysis':
+                        tab_names.append("MBU")
+                    elif analysis == 'bu_analysis':
+                        tab_names.append("BU")
                 
                 # Create tabs
                 if tab_names:
@@ -185,53 +224,26 @@ class OwnershipAnalyserTab(BaseTab):
     
     def _display_database_status(self, target_folder: str):
         """Display database status information before analysis"""
-        try:
-            # Check database readiness using Sonic reader
-            from database.reader.factory import ReaderFactory
+        # Check if database is ready from Load tab
+        if st.session_state.get('database_ready', False):
+            st.success("✅ Database is ready for analysis!")
             
-            st.markdown("**Sonic Database Status Check**")
-            
-            with st.spinner("Checking Sonic database status..."):
-                readiness_result = ReaderFactory.create_sonic_reader(
-                    target_folder,
-                    max_workers=multiprocessing.cpu_count(),  # Use all available cores
-                    batch_size=2000,
-                    memory_limit_gb=4.0
-                )
-            
-            # Display status information as metrics (same style as Source tab)
-            col1, col2, col3, col4, col5 = st.columns(5)
-            
-            with col1:
-                if readiness_result.get('ready', False):
-                    st.metric("🗄️ Database", "✅ Ready")
-                else:
-                    st.metric("🗄️ Database", "❌ Not Ready")
-            
-            with col2:
-                health_status = readiness_result.get('health_status', 'UNKNOWN')
-                st.metric("🏥 Health", health_status)
-            
-            with col3:
-                object_count = readiness_result.get('object_count', 0)
-                st.metric("📊 Assets", f"{object_count:,}")
-            
-            with col4:
-                table_count = readiness_result.get('table_count', 0)
-                st.metric("🗃️ Tables", str(table_count))
-            
-            with col5:
-                json_files_found = readiness_result.get('json_files_found', 0)
-                st.metric("📄 JSON Files", str(json_files_found))
-            
-            # Show warning if not ready
-            if not readiness_result.get('ready', False):
-                error_msg = readiness_result.get('error', 'Unknown error')
-                st.warning(f"⚠️ Database not ready: {error_msg}")
-                st.info("💡 **Tip**: Make sure to complete the Transform tab first to create the database.")
-            
-        except Exception as e:
-            st.error(f"❌ Failed to check database status: {str(e)}")
+            # Display database stats if available
+            if 'database_stats' in st.session_state:
+                stats = st.session_state['database_stats']
+                col1, col2, col3, col4 = st.columns(4)
+                
+                with col1:
+                    st.metric("📊 Total Assets", f"{stats.get('total_assets', 0):,}")
+                with col2:
+                    st.metric("📄 Total Files", stats.get('total_files', 0))
+                with col3:
+                    st.metric("🏥 Health", stats.get('health_status', 'Unknown'))
+                with col4:
+                    st.metric("🗃️ Tables", stats.get('table_count', 0))
+        else:
+            st.warning("⚠️ Database not loaded. Please complete the Load tab first.")
+            st.info("💡 **Next Step**: Go to the Load tab to create the database from normalized data.")
     
     def _display_ownership_summary_table(self, summary: Dict[str, Any]):
         """Display ownership summary as a table"""
@@ -245,12 +257,7 @@ class OwnershipAnalyserTab(BaseTab):
             ["Total Teams", f"{summary['total_teams']:,}"]
         ]
         
-        # Calculate ownership percentage
-        if summary['total_assets'] > 0:
-            owned_assets = summary['total_assets'] - summary['total_assets_unowned']
-            ownership_percentage = (owned_assets / summary['total_assets']) * 100
-            summary_data.append(["Ownership Coverage", f"{ownership_percentage:.1f}%"])
-        
+         
         # Display the table
         df = pd.DataFrame(summary_data, columns=["Metric", "Value"])
         
@@ -263,7 +270,7 @@ class OwnershipAnalyserTab(BaseTab):
             width='stretch',
             hide_index=True,
             column_config={
-                "Metric": st.column_config.TextColumn("Metric", width="medium"),
+                "Metric": st.column_config.TextColumn("Metric", width="small"),
                 "Value": st.column_config.TextColumn("Value", width="small")
             }
         )
@@ -351,7 +358,7 @@ class OwnershipAnalyserTab(BaseTab):
             
             # Update layout
             fig.update_layout(
-                title=f"Asset Ownership Distribution by {title}",
+                title=f"Assets Ownership Distribution by {title}",
                 xaxis_title=title,
                 yaxis_title="Number of Assets",
                 barmode='group',
@@ -368,9 +375,12 @@ class OwnershipAnalyserTab(BaseTab):
             total_unowned = df['unowned_assets'].sum()
             unowned_percentage = (total_unowned / df['total_assets'].sum()) * 100 if df['total_assets'].sum() > 0 else 0
             
+            # Calculate owned percentage for consistency
+            owned_percentage = ((df['total_assets'].sum() - total_unowned) / df['total_assets'].sum()) * 100 if df['total_assets'].sum() > 0 else 0
+            
             summary_data = {
-                'Metric': [f'Total {title}s', 'Total Unowned Assets', 'Unowned Percentage'],
-                'Count': [len(df), f"{total_unowned:,}", f"{unowned_percentage:.1f}%"]
+                'Metric': [f'Total {title}s', 'Total Unowned Assets', 'Ownership Coverage'],
+                'Count': [len(df), f"{total_unowned:,}", f"{owned_percentage:.1f}%"]
             }
             
             df_summary = pd.DataFrame(summary_data)
@@ -381,7 +391,8 @@ class OwnershipAnalyserTab(BaseTab):
                 column_config={
                     col: st.column_config.TextColumn(
                         col,
-                        help=f"Shows {col.lower()} information"
+                        help=f"Shows {col.lower()} information",
+                        width="small"
                     )
                     for col in df_summary.columns
                 }
@@ -399,12 +410,32 @@ class OwnershipAnalyserTab(BaseTab):
         try:
             # Check if reader exists and is connected
             if not hasattr(self.analyser, 'reader') or self.analyser.reader is None:
-                self.analyser.create_reader(target_folder)
+                # The database is already loaded by DuckDBSonicReader in Load tab
+                # We need to use DuckDBReader to query the existing database files
+                from database.reader.duckdb import DuckDBReader
+                
+                # Create a new DuckDBReader instance to query the existing database
+                # This will connect to the database files created by the Load tab
+                self.analyser.reader = DuckDBReader.get_instance(target_folder)
+                
+                # Check if database is ready
+                readiness_result = self.analyser.reader.check_data_readiness()
+                if not readiness_result.get('ready', False):
+                    raise Exception(f"Database not ready: {readiness_result.get('error', 'Unknown error')}")
+                    
             return True
         except Exception as e:
             # If connection fails, try to create a new one
             try:
-                self.analyser.create_reader(target_folder)
+                from database.reader.duckdb import DuckDBReader
+                
+                self.analyser.reader = DuckDBReader.get_instance(target_folder)
+                
+                # Check if database is ready
+                readiness_result = self.analyser.reader.check_data_readiness()
+                if not readiness_result.get('ready', False):
+                    raise Exception(f"Database not ready: {readiness_result.get('error', 'Unknown error')}")
+                    
                 return True
             except Exception as e2:
                 raise Exception(f"Failed to establish database connection: {str(e2)}")
@@ -424,10 +455,17 @@ class OwnershipAnalyserTab(BaseTab):
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
             summary = self.analyser.get_ownership_summary()
+            if summary is None:
+                return {
+                    'type': 'ownership_summary',
+                    'data': None,
+                    'success': False,
+                    'error': 'Failed to get ownership summary - no data returned'
+                }
             return {
                 'type': 'ownership_summary',
                 'data': summary,
-                'success': summary is not None,
+                'success': True,
                 'error': None
             }
         except Exception as e:
@@ -438,27 +476,27 @@ class OwnershipAnalyserTab(BaseTab):
                 'error': str(e)
             }
     
+    
     def _run_ownership_summary(self, target_folder: str):
         """Run ownership summary analysis"""
         try:
             st.info("📊 Running Ownership Summary Analysis...")
             
             # Get ownership summary from analyser
-            summary = self.analyser.get_ownership_summary(target_folder)
+            summary = self.analyser.get_ownership_summary()
             
             if summary:
                 # Display summary metrics
                 # Display summary metrics as a table (same style as Transform tab)
                 summary_data = {
-                    'Metric': ['Total Parent Cloud', 'Total Cloud', 'Total Assets', 'Unowned Assets', 'Total Teams', 'Owned Assets', 'Ownership %'],
+                    'Metric': ['Total Parent Clouds', 'Total Clouds', 'Total Assets', 'Unowned Assets', 'Total Teams', 'Owned Assets'],
                     'Count': [
-                        summary.get('total_parent_cloud', 0),
-                        summary.get('total_cloud', 0),
-                        summary.get('total_asset', 0),
+                        summary.get('total_parent_clouds', 0),
+                        summary.get('total_clouds', 0),
+                        summary.get('total_assets', 0),
                         summary.get('total_assets_unowned', 0),
-                        summary.get('total_team', 0),
-                        summary.get('total_asset', 0) - summary.get('total_assets_unowned', 0),
-                        f"{((summary.get('total_asset', 0) - summary.get('total_assets_unowned', 0)) / summary.get('total_asset', 1) * 100) if summary.get('total_asset', 0) > 0 else 0:.1f}%"
+                        summary.get('total_teams', 0),
+                        summary.get('total_assets', 0) - summary.get('total_assets_unowned', 0)
                     ]
                 }
                 
@@ -489,11 +527,18 @@ class OwnershipAnalyserTab(BaseTab):
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
             distribution = self.analyser.get_parent_cloud_distribution()
+            if distribution is None:
+                return {
+                    'type': 'parent_cloud_analysis',
+                    'data': None,
+                    'success': False,
+                    'error': 'Failed to get parent cloud distribution - no data returned'
+                }
             return {
                 'type': 'parent_cloud_analysis',
                 'data': distribution,
-                'success': distribution is not None and len(distribution) > 0,
-                'error': None
+                'success': len(distribution) > 0,
+                'error': None if len(distribution) > 0 else 'No parent cloud data available'
             }
         except Exception as e:
             return {
@@ -519,6 +564,8 @@ class OwnershipAnalyserTab(BaseTab):
                     y=['total_assets', 'unowned_assets'],
                     barmode='group'
                 )
+                
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # Display table with left alignment
@@ -528,7 +575,8 @@ class OwnershipAnalyserTab(BaseTab):
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
-                            help=f"Shows {col.lower()} information"
+                            help=f"Shows {col.lower()} information",
+                            width="small"
                         )
                         for col in distribution.columns
                     }
@@ -556,6 +604,8 @@ class OwnershipAnalyserTab(BaseTab):
                     y=['total_assets', 'unowned_assets'],
                     barmode='group'
                 )
+                
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # Display table with left alignment
@@ -565,7 +615,8 @@ class OwnershipAnalyserTab(BaseTab):
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
-                            help=f"Shows {col.lower()} information"
+                            help=f"Shows {col.lower()} information",
+                            width="small"
                         )
                         for col in distribution.columns
                     }
@@ -586,13 +637,29 @@ class OwnershipAnalyserTab(BaseTab):
             distribution = self.analyser.get_team_distribution(target_folder)
             
             if distribution and not distribution.empty:
-                # Create chart
+                # Create chart with dynamic legend labels
+                # Prepare data for legend labels
+                total_assets_sum = distribution['total_assets'].sum()
+                unowned_assets_sum = distribution['unowned_assets'].sum()
+                
+                total_label = f"Total Assets ({total_assets_sum:,})" if total_assets_sum > 0 else "Total Assets (0, not shown)"
+                unowned_label = f"Unowned Assets ({unowned_assets_sum:,})" if unowned_assets_sum > 0 else "Unowned Assets (0, not shown)"
+                
+                # Rename columns to match legend labels
+                df_chart = distribution.copy()
+                df_chart = df_chart.rename(columns={
+                    'total_assets': total_label,
+                    'unowned_assets': unowned_label
+                })
+                
                 fig = px.bar(
-                    distribution, 
+                    df_chart, 
                     x='team', 
-                    y=['total_assets', 'unowned_assets'],
+                    y=[total_label, unowned_label],
                     barmode='group'
                 )
+                
+                
                 st.plotly_chart(fig, use_container_width=True)
                 
                 # Display table with left alignment
@@ -602,7 +669,8 @@ class OwnershipAnalyserTab(BaseTab):
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
-                            help=f"Shows {col.lower()} information"
+                            help=f"Shows {col.lower()} information",
+                            width="small"
                         )
                         for col in distribution.columns
                     }
@@ -665,7 +733,8 @@ class OwnershipAnalyserTab(BaseTab):
                 column_config={
                     col: st.column_config.TextColumn(
                         col,
-                        help=f"Shows {col.lower()} information"
+                        help=f"Shows {col.lower()} information",
+                        width="small"
                     )
                     for col in df_summary.columns
                 }
@@ -685,7 +754,8 @@ class OwnershipAnalyserTab(BaseTab):
                 column_config={
                     col: st.column_config.TextColumn(
                         col,
-                        help=f"Shows {col.lower()} information"
+                        help=f"Shows {col.lower()} information",
+                        width="small"
                     )
                     for col in breakdown_data.columns
                 }
@@ -702,10 +772,17 @@ class OwnershipAnalyserTab(BaseTab):
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
             distribution = self.analyser.get_cloud_distribution()
+            if distribution is None or len(distribution) == 0:
+                return {
+                    'type': 'cloud_analysis',
+                    'data': None,
+                    'success': False,
+                    'error': 'No cloud data found - cloud field may not exist in the database'
+                }
             return {
                 'type': 'cloud_analysis',
                 'data': distribution,
-                'success': distribution is not None and len(distribution) > 0,
+                'success': True,
                 'error': None
             }
         except Exception as e:
@@ -722,15 +799,76 @@ class OwnershipAnalyserTab(BaseTab):
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
             distribution = self.analyser.get_team_distribution()
+            if distribution is None or len(distribution) == 0:
+                return {
+                    'type': 'team_analysis',
+                    'data': None,
+                    'success': False,
+                    'error': 'No team data found - team field may not exist in the database'
+                }
             return {
                 'type': 'team_analysis',
                 'data': distribution,
-                'success': distribution is not None and len(distribution) > 0,
+                'success': True,
                 'error': None
             }
         except Exception as e:
             return {
                 'type': 'team_analysis',
+                'data': None,
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _get_mbu_analysis_result(self, target_folder: str):
+        """Get MBU analysis result"""
+        try:
+            # Ensure reader connection is established
+            self._ensure_reader_connection(target_folder)
+            distribution = self.analyser.get_mbu_distribution()
+            if distribution is None or len(distribution) == 0:
+                return {
+                    'type': 'mbu_analysis',
+                    'data': None,
+                    'success': False,
+                    'error': 'No MBU data found - properties_mbu field may not exist or be empty in the database. Check the console output for available fields.'
+                }
+            return {
+                'type': 'mbu_analysis',
+                'data': distribution,
+                'success': True,
+                'error': None
+            }
+        except Exception as e:
+            return {
+                'type': 'mbu_analysis',
+                'data': None,
+                'success': False,
+                'error': str(e)
+            }
+    
+    def _get_bu_analysis_result(self, target_folder: str):
+        """Get BU analysis result"""
+        try:
+            # Ensure reader connection is established
+            self._ensure_reader_connection(target_folder)
+            distribution = self.analyser.get_bu_distribution()
+            if distribution is None or len(distribution) == 0:
+                return {
+                    'type': 'bu_analysis',
+                    'data': None,
+                    'success': False,
+                    'error': 'No BU data found - properties_bu field may not exist or be empty in the database. Check the console output for available fields.'
+                }
+            return {
+                'type': 'bu_analysis',
+                'data': distribution,
+                'success': True,
+                'error': None
+            }
+        except Exception as e:
+            return {
+                'type': 'bu_analysis',
                 'data': None,
                 'success': False,
                 'error': str(e)
@@ -806,21 +944,19 @@ class OwnershipAnalyserTab(BaseTab):
         if analysis_type == 'ownership_summary':
             if data:
                 # Display summary metrics as a table (same style as Transform tab)
-                total_assets = data.get('total_asset', 0)
+                total_assets = data.get('total_assets', 0)
                 unowned_assets = data.get('total_assets_unowned', 0)
                 owned_assets = total_assets - unowned_assets
-                ownership_percentage = ((owned_assets / total_assets * 100) if total_assets > 0 else 0)
                 
                 summary_data = {
-                    'Metric': ['Total Parent Cloud', 'Total Cloud', 'Total Assets', 'Unowned Assets', 'Total Teams', 'Owned Assets', 'Ownership %'],
+                    'Metric': ['Total Parent Clouds', 'Total Clouds', 'Total Assets', 'Unowned Assets', 'Total Teams', 'Owned Assets'],
                     'Count': [
-                        str(data.get('total_parent_cloud', 0)),
-                        str(data.get('total_cloud', 0)),
+                        str(data.get('total_parent_clouds', 0)),
+                        str(data.get('total_clouds', 0)),
                         str(total_assets),
                         str(unowned_assets),
-                        str(data.get('total_team', 0)),
-                        str(owned_assets),
-                        f"{ownership_percentage:.1f}%"
+                        str(data.get('total_teams', 0)),
+                        str(owned_assets)
                     ]
                 }
                 
@@ -857,23 +993,47 @@ class OwnershipAnalyserTab(BaseTab):
                     'unowned_assets': 'Unowned Assets'
                 })
                 
-                # Create chart
+                # Create chart with dynamic legend labels
+                # Prepare data for legend labels
+                total_assets_sum = df['total_assets'].sum()
+                unowned_assets_sum = df['unowned_assets'].sum()
+                owned_assets_sum = total_assets_sum - unowned_assets_sum
+                ownership_percentage = (owned_assets_sum / total_assets_sum * 100) if total_assets_sum > 0 else 0
+                
+                total_label = f"Total Assets ({total_assets_sum:,})" if total_assets_sum > 0 else "Total Assets (0, not shown)"
+                unowned_label = f"Unowned Assets ({unowned_assets_sum:,})" if unowned_assets_sum > 0 else "Unowned Assets (0, not shown)"
+                
+                # Rename columns to match legend labels
+                df_chart = df.copy()
+                df_chart = df_chart.rename(columns={
+                    'total_assets': total_label,
+                    'unowned_assets': unowned_label
+                })
+                
                 fig = px.bar(
-                    df, 
+                    df_chart, 
                     x='parent_cloud', 
-                    y=['total_assets', 'unowned_assets'],
+                    y=[total_label, unowned_label],
                     barmode='group',
                     labels={
-                        'parent_cloud': 'Parent Cloud',
-                        'total_assets': 'Total Assets',
-                        'unowned_assets': 'Unowned Assets'
+                        'parent_cloud': 'Parent Cloud'
                     }
+                )
+                
+                
+                # Update layout for better readability
+                fig.update_layout(
+                    title=f"Assets Distribution by Parent Cloud<br><sub>Ownership: {ownership_percentage:.1f}% ({owned_assets_sum:,} owned out of {total_assets_sum:,} total)</sub>",
+                    xaxis_title="Parent Cloud",
+                    yaxis_title="Number of Assets",
+                    height=500,
+                    xaxis={'categoryorder': 'total descending'}
                 )
                 
                 # Update hover template for better user experience
                 fig.update_traces(
                     hovertemplate="Parent Cloud: %{x}<br>" +
-                                 "%{y}<br>" +
+                                 "Assets: %{y:,.0f}<br>" +
                                  "<extra></extra>"
                 )
                 st.plotly_chart(fig, use_container_width=True)
@@ -888,7 +1048,8 @@ class OwnershipAnalyserTab(BaseTab):
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
-                            help=f"Shows {col.lower()} information"
+                            help=f"Shows {col.lower()} information",
+                            width="small"
                         )
                         for col in df_display.columns
                     }
@@ -915,23 +1076,47 @@ class OwnershipAnalyserTab(BaseTab):
                     'unowned_assets': 'Unowned Assets'
                 })
                 
-                # Create chart
+                # Create chart with dynamic legend labels
+                # Prepare data for legend labels
+                total_assets_sum = df['total_assets'].sum()
+                unowned_assets_sum = df['unowned_assets'].sum()
+                owned_assets_sum = total_assets_sum - unowned_assets_sum
+                ownership_percentage = (owned_assets_sum / total_assets_sum * 100) if total_assets_sum > 0 else 0
+                
+                total_label = f"Total Assets ({total_assets_sum:,})" if total_assets_sum > 0 else "Total Assets (0, not shown)"
+                unowned_label = f"Unowned Assets ({unowned_assets_sum:,})" if unowned_assets_sum > 0 else "Unowned Assets (0, not shown)"
+                
+                # Rename columns to match legend labels
+                df_chart = df.copy()
+                df_chart = df_chart.rename(columns={
+                    'total_assets': total_label,
+                    'unowned_assets': unowned_label
+                })
+                
                 fig = px.bar(
-                    df, 
+                    df_chart, 
                     x='cloud', 
-                    y=['total_assets', 'unowned_assets'],
+                    y=[total_label, unowned_label],
                     barmode='group',
                     labels={
-                        'cloud': 'Cloud',
-                        'total_assets': 'Total Assets',
-                        'unowned_assets': 'Unowned Assets'
+                        'cloud': 'Cloud'
                     }
+                )
+                
+                
+                # Update layout for better readability
+                fig.update_layout(
+                    title=f"Assets Distribution by Cloud<br><sub>Ownership: {ownership_percentage:.1f}% ({owned_assets_sum:,} owned out of {total_assets_sum:,} total)</sub>",
+                    xaxis_title="Cloud",
+                    yaxis_title="Number of Assets",
+                    height=500,
+                    xaxis={'categoryorder': 'total descending'}
                 )
                 
                 # Update hover template for better user experience
                 fig.update_traces(
                     hovertemplate="Cloud: %{x}<br>" +
-                                 "%{y}<br>" +
+                                 "Assets: %{y:,.0f}<br>" +
                                  "<extra></extra>"
                 )
                 st.plotly_chart(fig, use_container_width=True)
@@ -946,7 +1131,8 @@ class OwnershipAnalyserTab(BaseTab):
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
-                            help=f"Shows {col.lower()} information"
+                            help=f"Shows {col.lower()} information",
+                            width="small"
                         )
                         for col in df_display.columns
                     }
@@ -973,7 +1159,14 @@ class OwnershipAnalyserTab(BaseTab):
                     'unowned_assets': 'Unowned Assets'
                 })
                 
-                # Create chart
+                # Create chart with dynamic legend labels
+                # Prepare data for legend labels
+                total_assets_sum = df['total_assets'].sum()
+                unowned_assets_sum = df['unowned_assets'].sum()
+                
+                total_label = f"Total Teams ({total_assets_sum:,})" if total_assets_sum > 0 else "Total Teams (0, not shown)"
+                unowned_label = f"Unowned Teams ({unowned_assets_sum:,})" if unowned_assets_sum > 0 else "Unowned Teams (0, not shown)"
+                
                 fig = px.bar(
                     df, 
                     x='team', 
@@ -981,15 +1174,16 @@ class OwnershipAnalyserTab(BaseTab):
                     barmode='group',
                     labels={
                         'team': 'Team',
-                        'total_assets': 'Total Assets',
-                        'unowned_assets': 'Unowned Assets'
+                        'total_assets': total_label,
+                        'unowned_assets': unowned_label
                     }
                 )
+                
                 
                 # Update hover template for better user experience
                 fig.update_traces(
                     hovertemplate="Team: %{x}<br>" +
-                                 "%{y}<br>" +
+                                 "Assets: %{y:,.0f}<br>" +
                                  "<extra></extra>"
                 )
                 st.plotly_chart(fig, use_container_width=True)
@@ -1004,11 +1198,178 @@ class OwnershipAnalyserTab(BaseTab):
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
-                            help=f"Shows {col.lower()} information"
+                            help=f"Shows {col.lower()} information",
+                            width="small"
                         )
                         for col in df_display.columns
                     }
                 )
             else:
                 st.warning("⚠️ No team data available")
+        
+        elif analysis_type == 'mbu_analysis':
+            if data is not None and len(data) > 0:
+                # Convert to DataFrame for plotting and ensure proper data types
+                df = safe_dataframe(data)
+                
+                # Ensure numeric columns are properly typed
+                if 'total_assets' in df.columns:
+                    df['total_assets'] = clean_numeric_column(df['total_assets'])
+                if 'unowned_assets' in df.columns:
+                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets'])
+                
+                # Rename columns for user-friendly display
+                df_display = df.copy()
+                df_display = df_display.rename(columns={
+                    'mbu': 'MBU',
+                    'total_assets': 'Total Assets',
+                    'unowned_assets': 'Unowned Assets'
+                })
+                
+                # Create chart for MBU only with dynamic legend labels
+                # Prepare data for legend labels
+                total_assets_sum = df['total_assets'].sum()
+                unowned_assets_sum = df['unowned_assets'].sum()
+                
+                total_label = f"Total Assets ({total_assets_sum:,})" if total_assets_sum > 0 else "Total Assets (0, not shown)"
+                unowned_label = f"Unowned Assets ({unowned_assets_sum:,})" if unowned_assets_sum > 0 else "Unowned Assets (0, not shown)"
+                
+                # Rename columns to match legend labels
+                df_chart = df.copy()
+                df_chart = df_chart.rename(columns={
+                    'total_assets': total_label,
+                    'unowned_assets': unowned_label
+                })
+                
+                fig = px.bar(
+                    df_chart, 
+                    x='mbu', 
+                    y=[total_label, unowned_label],
+                    barmode='group',
+                    labels={
+                        'mbu': 'MBU'
+                    }
+                )
+                
+                
+                # Update layout for better readability
+                fig.update_layout(
+                    title="Assets Distribution by Management Business Unit (MBU)",
+                    xaxis_title="MBU",
+                    yaxis_title="Number of Assets",
+                    height=500,
+                    xaxis={'categoryorder': 'total descending'}
+                )
+                
+                # Update hover template for better user experience
+                fig.update_traces(
+                    hovertemplate="MBU: %{x}<br>" +
+                                 "Assets: %{y:,.0f}<br>" +
+                                 "<extra></extra>"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Add separator between chart and table
+                st.markdown("---")
+                
+                # Display table with user-friendly headers and left alignment
+                st.dataframe(
+                    df_display, 
+                    use_container_width=True,
+                    column_config={
+                        col: st.column_config.TextColumn(
+                            col,
+                            help=f"Shows {col.lower()} information",
+                            width="small"
+                        )
+                        for col in df_display.columns
+                    }
+                )
+            else:
+                st.warning("⚠️ No MBU data available")
+        
+        elif analysis_type == 'bu_analysis':
+            if data is not None and len(data) > 0:
+                # Convert to DataFrame for plotting and ensure proper data types
+                df = safe_dataframe(data)
+                
+                # Ensure numeric columns are properly typed
+                if 'total_assets' in df.columns:
+                    df['total_assets'] = clean_numeric_column(df['total_assets'])
+                if 'unowned_assets' in df.columns:
+                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets'])
+                
+                # Create a combined label for the chart (BU | MBU)
+                df['bu_mbu'] = df['bu'].astype(str) + ' | ' + df['mbu'].astype(str)
+                
+                # Rename columns for user-friendly display
+                df_display = df.copy()
+                df_display = df_display.rename(columns={
+                    'bu': 'BU',
+                    'mbu': 'MBU',
+                    'total_assets': 'Total Assets',
+                    'unowned_assets': 'Unowned Assets'
+                })
+                
+                # Create chart with combined BU|MBU labels and dynamic legend
+                # Prepare data for legend labels
+                total_assets_sum = df['total_assets'].sum()
+                unowned_assets_sum = df['unowned_assets'].sum()
+                
+                total_label = f"Total Assets ({total_assets_sum:,})" if total_assets_sum > 0 else "Total Assets (0, not shown)"
+                unowned_label = f"Unowned Assets ({unowned_assets_sum:,})" if unowned_assets_sum > 0 else "Unowned Assets (0, not shown)"
+                
+                # Rename columns to match legend labels
+                df_chart = df.copy()
+                df_chart = df_chart.rename(columns={
+                    'total_assets': total_label,
+                    'unowned_assets': unowned_label
+                })
+                
+                fig = px.bar(
+                    df_chart, 
+                    x='bu_mbu', 
+                    y=[total_label, unowned_label],
+                    barmode='group',
+                    labels={
+                        'bu_mbu': 'BU | MBU'
+                    }
+                )
+                
+                
+                # Update layout for better readability
+                fig.update_layout(
+                    title="Assets Distribution by Business Unit and Management Business Unit",
+                    xaxis_title="BU | MBU",
+                    yaxis_title="Number of Assets",
+                    height=500,
+                    xaxis={'categoryorder': 'total descending'}
+                )
+                
+                # Update hover template for better user experience
+                fig.update_traces(
+                    hovertemplate="BU | MBU: %{x}<br>" +
+                                 "Assets: %{y:,.0f}<br>" +
+                                 "<extra></extra>"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+                
+                # Add separator between chart and table
+                st.markdown("---")
+                
+                # Display table with user-friendly headers and left alignment
+                st.dataframe(
+                    df_display, 
+                    use_container_width=True,
+                    column_config={
+                        col: st.column_config.TextColumn(
+                            col,
+                            help=f"Shows {col.lower()} information",
+                            width="small"
+                        )
+                        for col in df_display.columns
+                    }
+                )
+            else:
+                st.warning("⚠️ No BU data available")
         

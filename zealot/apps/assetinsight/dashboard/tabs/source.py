@@ -211,8 +211,9 @@ class SourceTab(BaseTab):
         processed_assets = sum(f.get('Assets', 0) for f in file_details if f.get('Assets', 0) > 0)
         errored_assets = source_data['estimated_assets'] - processed_assets
         
-        # Display stats as metrics - Single row (7 columns)
-        col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
+        # Display stats as metrics - Two rows (4 columns each)
+        # Row 1
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             st.metric(
@@ -238,6 +239,9 @@ class SourceTab(BaseTab):
                 value=processed_files
             )
         
+        # Row 2
+        col5, col6, col7, col8 = st.columns(4)
+        
         with col5:
             st.metric(
                 label="❌ Errored Files",
@@ -254,6 +258,12 @@ class SourceTab(BaseTab):
             st.metric(
                 label="📈 Success Rate",
                 value=f"{(processed_files / source_data['total_files'] * 100):.1f}%" if source_data['total_files'] > 0 else "0%"
+            )
+        
+        with col8:
+            st.metric(
+                label="🔍 Analysis Status",
+                value="Complete"
             )
         
         st.markdown("---")

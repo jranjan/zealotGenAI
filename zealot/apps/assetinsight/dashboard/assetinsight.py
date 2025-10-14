@@ -19,7 +19,7 @@ from collections import defaultdict
 # Add the parent directory to the path to import AssetAnalyser
 sys.path.append(str(Path(__file__).parent.parent))
 from analyser import AssetAnalyser
-from configreader import AssetFieldConfig
+from configreader import SchemaGuide
 from common import AnalyserFactory
 
 # Page configuration
@@ -72,65 +72,44 @@ class AssetInsightDashboard:
         """Create the appropriate analyser based on type."""
         return AnalyserFactory.create_analyser(analyser_type)
         
-    def load_analysis_data(self, config_path: str):
+    def load_analysis_data(self):
         """Load analysis data using AssetAnalyser."""
         try:
-            # Load configuration
-            self.config = AssetFieldConfig(config_path)
+            st.info("📁 Running analysis on all assets")
             
-            # Get all assets from config
-            asset_names = self.config.get_asset_names()
-            if not asset_names:
-                st.error("❌ No assets found in configuration")
-                return False
-            
-            st.info(f"📁 Found {len(asset_names)} asset classes to analyze")
-            
-            # Run analysis for each asset class
+            # Run analysis once for all assets
             self.analysis_results = []
             self.analysis_data = {}
             total_assets = 0
             
-            for asset_name in asset_names:
-                try:
-                    # Get field configurations
-                    asset_fields = self.config.get_asset_fields(asset_name)
-                    # AssetFieldConfig doesn't have cloud_fields, so we'll use a default
-                    cloud_fields = ['parentCloud', 'team', 'cloud']
-                    
-                    # Run analysis
-                    # For now, we'll use placeholder paths since AssetFieldConfig doesn't have them
-                    result = self.analyser.analyse_asset_class(
-                        asset_class_name=asset_name,
-                        source_path="data/source",  # This should come from config
-                        result_path="data/results"  # This should come from config
-                    )
-                    
-                    self.analysis_results.append(result)
-                    
-                    # Load the generated JSON files for visualization
-                    result_dir = Path("data/results")  # Placeholder path
-                    timestamp_dirs = [d for d in result_dir.iterdir() if d.is_dir() and d.name.count('_') == 3]
-                    if timestamp_dirs:
-                        latest_dir = max(timestamp_dirs, key=lambda x: x.name)
-                        json_files = list(latest_dir.glob("*.json"))
+            # Run analysis for all assets
+            result = self.analyser.analyse_asset_class(
+                asset_class_name="Asset",  # Use generic asset class name
+                source_path="data/source",  # This should come from config
+                result_path="data/results"  # This should come from config
+            )
+            
+            self.analysis_results.append(result)
+            
+            # Load the generated JSON files for visualization
+            result_dir = Path("data/results")  # Placeholder path
+            timestamp_dirs = [d for d in result_dir.iterdir() if d.is_dir() and d.name.count('_') == 3]
+            if timestamp_dirs:
+                latest_dir = max(timestamp_dirs, key=lambda x: x.name)
+                json_files = list(latest_dir.glob("*.json"))
+                
+                for json_file in json_files:
+                    try:
+                        with open(json_file, 'r') as f:
+                            data = json.load(f)
+                            
+                        cloud_name = data.get('cloud', {}).get('cloud', 'Unknown')
+                        self.analysis_data[cloud_name] = data
+                        total_assets += data.get('total_assets', 0)
                         
-                        for json_file in json_files:
-                            try:
-                                with open(json_file, 'r') as f:
-                                    data = json.load(f)
-                                    
-                                cloud_name = data.get('cloud', {}).get('cloud', 'Unknown')
-                                self.analysis_data[cloud_name] = data
-                                total_assets += data.get('total_assets', 0)
-                                
-                            except Exception as e:
-                                st.warning(f"⚠️ Error loading {json_file.name}: {e}")
-                                continue
-                    
-                except Exception as e:
-                    st.warning(f"⚠️ Error analyzing {asset_name}: {e}")
-                    continue
+                    except Exception as e:
+                        st.warning(f"⚠️ Error loading {json_file.name}: {e}")
+                        continue
             
             # Calculate summary statistics
             self.summary_stats = {
@@ -189,20 +168,17 @@ class AssetInsightDashboard:
             temp_config_path = f"temp_{uploaded_file.name}"
             with open(temp_config_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-            final_config_path = temp_config_path
             # Track for cleanup
             if temp_config_path not in self.temp_files:
                 self.temp_files.append(temp_config_path)
             st.sidebar.success(f"✅ Using uploaded file: {uploaded_file.name}")
-        else:
-            final_config_path = config_path
         
         col1, col2 = st.sidebar.columns(2)
         
         with col1:
             if st.button("🔄 Run Analysis", type="primary"):
                 with st.spinner("Running asset analysis..."):
-                    if self.load_analysis_data(final_config_path):
+                    if self.load_analysis_data():
                         st.sidebar.success("✅ Analysis completed successfully!")
                         st.rerun()
                     else:
@@ -334,7 +310,7 @@ class AssetInsightDashboard:
                 cloud_data.append({
                     'Cloud': cloud_name,
                     'Assets': cloud_info.get('total_cloud_assets', 0),
-                    'Teams': cloud_info.get('total_cloud_team', 0)
+                    'Teams': cloud_info.get('total_cloud_teams', 0)
                 })
         
         if not cloud_data:
@@ -384,16 +360,16 @@ class AssetInsightDashboard:
             data = self.analysis_data[cloud_name]
             cloud_info = data.get('cloud', {})
             
-            with st.expander(f"☁️ {cloud_name} ({cloud_info.get('total_cloud_assets', 0)} assets, {cloud_info.get('total_cloud_team', 0)} teams)", expanded=False):
+            with st.expander(f"☁️ {cloud_name} ({cloud_info.get('total_cloud_assets', 0)} assets, {cloud_info.get('total_cloud_teams', 0)} teams)", expanded=False):
                 
                 # Cloud summary
                 col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Total Assets", f"{cloud_info.get('total_cloud_assets', 0):,}")
                 with col2:
-                    st.metric("Total Teams", f"{cloud_info.get('total_cloud_team', 0):,}")
+                    st.metric("Total Teams", f"{cloud_info.get('total_cloud_teams', 0):,}")
                 with col3:
-                    st.metric("Assets per Team", f"{cloud_info.get('total_cloud_assets', 0) // max(cloud_info.get('total_cloud_team', 1), 1):,}")
+                    st.metric("Assets per Team", f"{cloud_info.get('total_cloud_assets', 0) // max(cloud_info.get('total_cloud_teams', 1), 1):,}")
                 
                 # Teams in this cloud
                 teams = cloud_info.get('team', [])
@@ -470,7 +446,7 @@ class AssetInsightDashboard:
         if not self.analysis_data:
             return
             
-        st.subheader("📈 Asset Analytics")
+        st.subheader("📈 Assets Analytics")
         
         # Collect all assets for analysis
         all_assets = []
@@ -551,12 +527,6 @@ class AssetInsightDashboard:
         # Clean up any existing temporary files on startup
         self.cleanup_temp_files()
         
-        # Auto-load default configuration if available
-        if not self.analysis_data and os.path.exists("assets.yaml"):
-            st.info("🔄 Auto-loading default configuration...")
-            if self.load_analysis_data("assets.yaml"):
-                st.success("✅ Default configuration loaded successfully!")
-                st.rerun()
         
         # Sidebar
         selected_clouds, selected_teams = self.render_sidebar()

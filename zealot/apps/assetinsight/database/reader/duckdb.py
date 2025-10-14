@@ -9,6 +9,7 @@ from typing import Dict, Any, List
 import tempfile
 import os
 from .base import Reader
+from configreader import SchemaGuide
 
 
 class DuckDBReader(Reader):
@@ -45,82 +46,125 @@ class DuckDBReader(Reader):
     
     def _setup_database(self):
         """Setup DuckDB database and load JSON files"""
-        self.db_path = tempfile.mktemp(suffix='.duckdb')
-        self.conn = duckdb.connect(self.db_path)
+        # Use a persistent database file in the folder instead of temp file
+        self.db_path = self.folder_path / "assets.db"
+        print(f"🗄️ Creating database at: {self.db_path}")
+        self.conn = duckdb.connect(str(self.db_path))
+        print(f"✅ Database connection established")
         self._load_json_files()
+        print(f"✅ Database setup complete")
+    
+    # Schema methods now inherited from base Reader class
     
     def _load_json_files(self):
         """Load JSON files into DuckDB"""
         json_files = list(self.folder_path.glob("*.json"))
         if not json_files:
+            print("⚠️ No JSON files found in directory")
             return
         
-        # Create table with all fields as JSON for flexibility
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS assets (
-                id VARCHAR,
-                name VARCHAR,
-                assetClass VARCHAR,
-                status VARCHAR,
-                organization VARCHAR,
-                parent_cloud VARCHAR,
-                cloud VARCHAR,
-                team VARCHAR,
-                properties JSON,
-                tags JSON,
-                raw_data JSON
-            )
-        """)
+        print(f"🚀 Loading {len(json_files)} JSON files into DuckDB...")
         
-        for file_path in json_files:
-            self._load_single_file(file_path)
+        # Drop existing table to ensure clean schema
+        self.conn.execute("DROP TABLE IF EXISTS assets")
+        
+        # Create table using SchemaGuide
+        self._create_assets_table(self.conn)
+        
+        # Load files with progress tracking
+        total_assets = 0
+        for i, file_path in enumerate(json_files, 1):
+            file_assets = self._load_single_file(file_path)
+            total_assets += file_assets
+            
+            # Progress update
+            progress = (i / len(json_files)) * 100
+            print(f"📊 Progress: {progress:.1f}% ({i}/{len(json_files)}) - Loaded {file_assets} assets from {file_path.name}")
+        
+        print(f"✅ Load Complete: {total_assets:,} total assets loaded from {len(json_files)} files")
     
-    def _load_single_file(self, file_path: Path):
-        """Load a single JSON file into DuckDB"""
+    def _load_single_file(self, file_path: Path) -> int:
+        """Load a single JSON file into DuckDB and return asset count"""
         with open(file_path, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
         if not isinstance(data, list):
-            return
+            return 0
         
+        # Get schema for dynamic field extraction
+        try:
+            table_schema = self._get_schema()
+        except Exception as e:
+            print(f"⚠️ Could not load schema for data insertion: {e}")
+            return 0
+        
+        # Get column names and types
+        columns = table_schema['columns']
+        column_names = [col['column_name'] for col in columns]
+        
+        asset_count = 0
         for asset in data:
             if not isinstance(asset, dict):
                 continue
             
-            # Extract key fields
-            id_val = asset.get('id', '')
-            name_val = asset.get('name', '')
-            asset_class = asset.get('assetClass', '')
-            status = asset.get('status', '')
-            organization = asset.get('organization', '')
-            parent_cloud = asset.get('parent_cloud', '')
-            cloud = asset.get('cloud', '')
-            team = asset.get('team', '')
-            properties = json.dumps(asset.get('properties', {}))
-            tags = json.dumps(asset.get('tags', {}))
-            raw_data = json.dumps(asset)
+            # Extract values for all columns dynamically
+            values = []
+            for col in columns:
+                col_name = col['column_name']
+                col_type = col['data_type']
+                
+                if col_type == 'JSON':
+                    if col_name == 'properties':
+                        value = self._reconstruct_nested_json(asset, 'properties_')
+                    elif col_name == 'tags':
+                        value = self._reconstruct_nested_json(asset, 'tags_')
+                    elif col_name == 'raw_data':
+                        value = json.dumps(asset)
+                    else:
+                        value = json.dumps(asset.get(col_name, {}))
+                else:
+                    # VARCHAR fields - use None for missing values to get NULL in database
+                    value = asset.get(col_name, None)
+                
+                values.append(value)
+            
+            # Build dynamic INSERT statement
+            placeholders = ', '.join(['?' for _ in column_names])
+            insert_sql = f"INSERT INTO assets ({', '.join(column_names)}) VALUES ({placeholders})"
             
             # Insert into database
-            self.conn.execute("""
-                INSERT INTO assets (
-                    id, name, assetClass, status, organization,
-                    parent_cloud, cloud, team, properties, tags, raw_data
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                id_val, name_val, asset_class, status, organization,
-                parent_cloud, cloud, team, properties, tags, raw_data
-            ))
+            self.conn.execute(insert_sql, values)
+            
+            asset_count += 1
+        
+        return asset_count
     
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
         """Execute a SQL query and return results"""
-        result = self.conn.execute(sql_query).fetchall()
-        columns = [desc[0] for desc in self.conn.description]
-        return [dict(zip(columns, row)) for row in result]
+        # Create new connection for this query to avoid connection issues
+        if not self.db_path or not os.path.exists(self.db_path):
+            return []
+        
+        conn = duckdb.connect(str(self.db_path))
+        try:
+            result = conn.execute(sql_query).fetchall()
+            columns = [desc[0] for desc in conn.description]
+            return [dict(zip(columns, row)) for row in result]
+        finally:
+            conn.close()
     
     def get_total_objects(self) -> int:
         """Get total number of assets in the database"""
-        result = self.conn.execute("SELECT COUNT(*) as count FROM assets").fetchone()
-        return result[0] if result else 0
+        # Create new connection for this query to avoid connection issues
+        if not self.db_path or not os.path.exists(self.db_path):
+            return 0
+        
+        conn = duckdb.connect(str(self.db_path))
+        try:
+            result = conn.execute("SELECT COUNT(*) as count FROM assets").fetchone()
+            return result[0] if result else 0
+        finally:
+            conn.close()
     
     def check_data_readiness(self) -> Dict[str, Any]:
         """
@@ -192,7 +236,14 @@ class DuckDBReader(Reader):
                 health_queries.append(f"WARNING: Failed to describe assets table - {schema_result['error']}")
             else:
                 schema = schema_result['data']
-                expected_columns = ['id', 'name', 'assetClass', 'status', 'organization', 'parent_cloud', 'cloud', 'team']
+                # Get expected columns from schema
+                try:
+                    table_schema = self._get_schema()
+                    expected_columns = [col['column_name'] for col in table_schema['columns']]
+                except Exception:
+                    # Fallback to basic columns if schema loading fails
+                    expected_columns = ['id', 'name', 'assetClass']
+                
                 schema_columns = [col.get('column_name', '') for col in schema]
                 missing_columns = [col for col in expected_columns if col not in schema_columns]
                 if missing_columns:
@@ -241,6 +292,8 @@ class DuckDBReader(Reader):
         except Exception as e:
             return {'success': False, 'data': 0, 'error': str(e)}
     
+    # _reconstruct_nested_json now inherited from base Reader class
+    
     def close(self):
         """Close the database and clean up resources"""
         if self.conn:
@@ -278,3 +331,67 @@ class DuckDBReader(Reader):
     def get_all_instances(cls):
         """Get all active instances"""
         return dict(cls._instances)
+    
+    def get_performance_stats(self) -> Dict[str, Any]:
+        """
+        Get performance statistics for the database reader.
+        
+        Returns:
+            Dictionary containing performance statistics
+        """
+        # Create a new connection for this query to avoid connection issues
+        if not self.db_path or not os.path.exists(self.db_path):
+            print(f"⚠️ Database file not found: {self.db_path}")
+            return {
+                'status': 'not_connected',
+                'total_files': 0,
+                'total_assets': 0,
+                'asset_classes': 0,
+                'health_status': 'Unknown'
+            }
+        
+        try:
+            # Create new connection for this query
+            print(f"🔌 Connecting to database: {self.db_path}")
+            conn = duckdb.connect(str(self.db_path))
+            
+            try:
+                # Get basic stats
+                print("📊 Querying total assets...")
+                result = conn.execute("SELECT COUNT(*) as total_assets FROM assets").fetchone()
+                total_assets = result[0] if result else 0
+                print(f"📊 Found {total_assets} total assets")
+                
+                # Get file count - DuckDBReader doesn't track source_file, so estimate from folder
+                json_files = list(self.folder_path.glob("*.json"))
+                total_files = len(json_files)
+                print(f"📁 Found {total_files} JSON files in folder")
+                
+                # Get asset classes
+                print("📊 Querying asset classes...")
+                result = conn.execute("SELECT COUNT(DISTINCT assetClass) as asset_classes FROM assets").fetchone()
+                asset_classes = result[0] if result else 0
+                print(f"📊 Found {asset_classes} asset classes")
+                
+                return {
+                    'status': 'connected',
+                    'total_files': total_files,
+                    'total_assets': total_assets,
+                    'asset_classes': asset_classes,
+                    'health_status': 'Healthy' if total_assets > 0 else 'Empty'
+                }
+            finally:
+                # Always close the connection
+                conn.close()
+                print("🔌 Connection closed")
+                
+        except Exception as e:
+            print(f"❌ Error in get_performance_stats: {str(e)}")
+            return {
+                'status': 'error',
+                'error': str(e),
+                'total_files': 0,
+                'total_assets': 0,
+                'asset_classes': 0,
+                'health_status': 'Error'
+            }

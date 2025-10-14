@@ -1,21 +1,22 @@
 """
-Asset Analyser - Abstract base class for asset analysis.
+Asset Analyser - Abstract base class for asset-specific analysis.
 
-This module provides a clean abstract base class that defines the interface
-for different types of asset analysers. Business logic is kept in concrete
-implementations, not in the base class.
+This module provides an abstract base class that extends the base Analyser
+class with asset-specific functionality. It focuses on asset data processing
+and analysis patterns.
 """
 
 from typing import Any, Dict, List
 from abc import ABC, abstractmethod
+from .base import Analyser
 
 
-class AssetAnalyser(ABC):
+class AssetAnalyser(Analyser):
     """
-    Abstract base class for asset analysers.
+    Abstract base class for asset-specific analysers.
     
-    This class defines the minimal interface for asset analysers.
-    All business logic should be implemented in concrete subclasses.
+    This class extends the base Analyser class with asset-specific functionality.
+    It provides common patterns for asset data processing and analysis.
     """
     
     def __init__(self, analyser_type: str):
@@ -25,21 +26,15 @@ class AssetAnalyser(ABC):
         Args:
             analyser_type: Type of analyser (e.g., 'owner', 'security', 'network')
         """
-        self.analyser_type = analyser_type
-        self.reader = None
+        super().__init__(analyser_type)
     
     @abstractmethod
-    def analyse_with_config(self, config, source_directory: str, result_directory: str) -> Dict[str, Any]:
+    def get_cloud_fields(self) -> List[str]:
         """
-        Analyze assets using configuration.
+        Get the list of cloud fields specific to this analyser type.
         
-        Args:
-            config: Configuration object
-            source_directory: Path to source directory
-            result_directory: Path to result directory
-            
         Returns:
-            Analysis results dictionary
+            List of cloud field names to extract
         """
         pass
     
@@ -50,16 +45,6 @@ class AssetAnalyser(ABC):
         
         Returns:
             List of asset field names to extract
-        """
-        pass
-    
-    @abstractmethod
-    def get_cloud_fields(self) -> List[str]:
-        """
-        Get the list of cloud fields specific to this analyser type.
-        
-        Returns:
-            List of cloud field names to extract
         """
         pass
     
@@ -75,19 +60,3 @@ class AssetAnalyser(ABC):
             Processed asset data with analyser-specific fields
         """
         pass
-    
-    def create_reader(self, source_directory: str) -> None:
-        """
-        Create a reader for the specified source directory.
-        
-        Args:
-            source_directory: Path to source directory containing asset files
-        """
-        from database.reader.duckdb import DuckDBReader
-        self.reader = DuckDBReader.get_instance(source_directory)
-    
-    def close_reader(self) -> None:
-        """Close the reader and clean up resources."""
-        if self.reader:
-            self.reader.close()
-            self.reader = None

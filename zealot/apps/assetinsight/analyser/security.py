@@ -21,12 +21,11 @@ class SecurityAnalyser(AssetAnalyser):
         """Initialize the security analyser."""
         super().__init__("security")
     
-    def analyse_with_config(self, config, source_directory: str, result_directory: str) -> Dict[str, Any]:
+    def analyse(self, source_directory: str, result_directory: str) -> Dict[str, Any]:
         """
-        Analyze assets using configuration for security analysis.
+        Analyze assets for security analysis.
         
         Args:
-            config: Configuration object
             source_directory: Path to source directory
             result_directory: Path to result directory
             

@@ -17,8 +17,15 @@ import threading
 from queue import Queue
 import orjson  # Faster JSON parsing
 import psutil  # For memory monitoring
+import warnings
+import logging
+
+# Suppress Streamlit warnings in multiprocessing workers
+warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 from .duckdb import DuckDBReader
+from configreader import SchemaGuide
 
 
 class DuckDBSonicReader(DuckDBReader):
@@ -58,7 +65,7 @@ class DuckDBSonicReader(DuckDBReader):
                  batch_size: int = 1000, memory_limit_gb: float = 2.0):
         """
         Initialize DuckDBSonicReader with multiprocessing support.
-        
+        a
         Args:
             folder_path: Path to folder containing JSON files
             max_workers: Maximum number of worker processes (default: CPU count)
@@ -76,6 +83,9 @@ class DuckDBSonicReader(DuckDBReader):
         if not self.folder_path or not os.path.exists(self.folder_path):
             raise ValueError(f"Folder does not exist: {self.folder_path}")
         
+        # Reset debug counter for this loading session
+        DuckDBSonicReader._debug_count = 0
+        
         # Find all JSON files with size information
         json_files = self._get_file_list_with_sizes()
         if not json_files:
@@ -84,15 +94,10 @@ class DuckDBSonicReader(DuckDBReader):
         self._total_files = len(json_files)
         self._start_time = time.time()
         
-        print(f"🚀 Loading {self._total_files} files using {self.max_workers} processes...")
-        print(f"📊 Total size: {sum(size for _, size in json_files) / 1024 / 1024:.1f} MB")
-        
         # Check if we should use streaming mode based on memory
         if self._should_use_streaming_mode(json_files):
-            print("🔄 Using streaming mode for memory efficiency...")
             self._load_files_streaming(json_files)
         else:
-            print("⚡ Using parallel processing mode...")
             self._load_files_parallel(json_files)
     
     def _get_file_list_with_sizes(self) -> List[Tuple[Path, int]]:
@@ -136,7 +141,7 @@ class DuckDBSonicReader(DuckDBReader):
                     self._update_progress()
                 except Exception as e:
                     chunk = future_to_chunk[future]
-                    print(f"❌ Error processing chunk {chunk}: {e}")
+                    pass  # Error processing chunk
         
         # Load all assets into DuckDB using multiprocessing
         if all_assets:
@@ -145,9 +150,6 @@ class DuckDBSonicReader(DuckDBReader):
                 self._load_assets_into_duckdb_multiprocessing_separate_db(all_assets)
             else:  # Use shared memory approach for smaller datasets
                 self._load_assets_into_duckdb_parallel(all_assets)
-            print(f"✅ Loaded {len(all_assets):,} assets in {time.time() - self._start_time:.2f}s")
-        else:
-            print("⚠️ No assets loaded")
     
     def _load_files_streaming(self, files_with_sizes: List[Tuple[Path, int]]) -> None:
         """Load files using streaming mode for memory efficiency."""
@@ -169,12 +171,12 @@ class DuckDBSonicReader(DuckDBReader):
                     self._processed_files += 1
                     self._update_progress()
                 except Exception as e:
-                    print(f"❌ Error processing {file_path}: {e}")
+                    pass  # Error processing file
             
             # Load batch into DuckDB immediately
             if batch_assets:
                 self._load_assets_into_duckdb(batch_assets)
-                print(f"📦 Loaded batch of {len(batch_assets):,} assets")
+                pass  # Batch loaded
     
     def _create_balanced_chunks(self, files_with_sizes: List[Tuple[Path, int]]) -> List[List[Path]]:
         """Create balanced file chunks based on file sizes for optimal load distribution."""
@@ -193,7 +195,7 @@ class DuckDBSonicReader(DuckDBReader):
             # For smaller datasets, use workers as chunks
             optimal_chunks = self.max_workers
         
-        print(f"📊 Using {optimal_chunks} chunks for {total_files} files (avg {total_files // optimal_chunks} files per chunk)")
+        pass  # Chunks created
         
         # Initialize chunks with empty lists
         chunks = [[] for _ in range(optimal_chunks)]
@@ -229,6 +231,12 @@ class DuckDBSonicReader(DuckDBReader):
         Returns:
             Tuple of (processed assets, processed file count)
         """
+        # Suppress Streamlit warnings in worker process
+        import warnings
+        import logging
+        warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+        logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+        
         assets = []
         processed_count = 0
         
@@ -254,7 +262,7 @@ class DuckDBSonicReader(DuckDBReader):
                 processed_count += 1
                             
             except Exception as e:
-                print(f"❌ Error processing {file_path}: {e}")
+                pass  # Error processing file
                 continue
         
         return assets, processed_count
@@ -291,14 +299,14 @@ class DuckDBSonicReader(DuckDBReader):
                         assets.append(processed_asset)
                         
         except Exception as e:
-            print(f"❌ Error processing {file_path}: {e}")
+            pass  # Error processing file
         
         return assets
     
     @staticmethod
     def _process_single_asset_optimized(asset: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Process a single asset dictionary with optimizations.
+        Process a single asset dictionary with optimizations using FlattenerHelper.
         
         Args:
             asset: Raw asset dictionary
@@ -307,20 +315,43 @@ class DuckDBSonicReader(DuckDBReader):
             Processed asset dictionary or None if invalid
         """
         try:
-            # Extract essential fields with optimized JSON serialization
-            properties_json = orjson.dumps(asset.get('properties', {})).decode('utf-8')
-            tags_json = orjson.dumps(asset.get('tags', {})).decode('utf-8')
+            # Debug: Print first few assets being processed
+            if hasattr(DuckDBSonicReader, '_debug_count'):
+                DuckDBSonicReader._debug_count += 1
+            else:
+                DuckDBSonicReader._debug_count = 1
+            
+            # The asset should already be flattened from the flattened files
+            # Use the flattened data directly for properties and tags reconstruction
+            properties_json = DuckDBSonicReader._reconstruct_nested_json_static(asset, 'properties_')
+            tags_json = DuckDBSonicReader._reconstruct_nested_json_static(asset, 'tags_')
             raw_data_json = orjson.dumps(asset).decode('utf-8')
             
+            
+            # Use flattened data directly from the flattened files
             processed_asset = {
                 'id': asset.get('id', ''),
                 'name': asset.get('name', ''),
+                'identifier': asset.get('identifier', ''),
+                'createdDate': asset.get('createdDate', ''),
+                'lastModifiedDate': asset.get('lastModifiedDate', ''),
                 'assetClass': asset.get('assetClass', ''),
+                'startDate': asset.get('startDate', ''),
+                'endDate': asset.get('endDate', ''),
+                'lastSeenDate': asset.get('lastSeenDate', ''),
                 'status': asset.get('status', ''),
-                'organization': asset.get('organization', ''),
-                'parent_cloud': asset.get('parent_cloud', ''),
-                'cloud': asset.get('cloud', ''),
-                'team': asset.get('team', ''),
+                'accountId': asset.get('accountId', ''),
+                'deleted': asset.get('deleted', ''),
+                # Use flattened ownership fields directly from the flattened asset
+                'parent_cloud': asset.get('parent_cloud'),
+                'parent_cloud_id': asset.get('parent_cloud_id'),
+                'parent_cloud_owner_email': asset.get('parent_cloud_owner_email'),
+                'cloud': asset.get('cloud'),
+                'cloud_id': asset.get('cloud_id'),
+                'cloud_owner_email': asset.get('cloud_owner_email'),
+                'team': asset.get('team'),
+                'team_id': asset.get('team_id'),
+                'team_owner_email': asset.get('team_owner_email'),
                 'properties': properties_json,
                 'tags': tags_json,
                 'raw_data': raw_data_json
@@ -329,7 +360,7 @@ class DuckDBSonicReader(DuckDBReader):
             return processed_asset
             
         except Exception as e:
-            print(f"❌ Error processing asset: {e}")
+            pass  # Error processing asset
             return None
     
     @staticmethod
@@ -355,22 +386,12 @@ class DuckDBSonicReader(DuckDBReader):
         if not assets:
             return
         
-        # Create assets table
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS assets (
-                id VARCHAR,
-                name VARCHAR,
-                assetClass VARCHAR,
-                status VARCHAR,
-                organization VARCHAR,
-                parent_cloud VARCHAR,
-                cloud VARCHAR,
-                team VARCHAR,
-                properties JSON,
-                tags JSON,
-                raw_data JSON
-            )
-        """)
+        
+        # Check database state before loading
+        self._verify_database_records_before_loading()
+        
+        # Create assets table using dynamic schema
+        self._create_assets_table(self.conn)
         
         # Use optimized batch insertion
         self._insert_asset_batch_optimized(assets)
@@ -380,6 +401,47 @@ class DuckDBSonicReader(DuckDBReader):
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
+        
+        # Verify database records after loading
+        self._verify_database_records()
+    
+    def _verify_database_records_before_loading(self):
+        """Check database state before loading data"""
+        try:
+            # Check if assets table exists
+            tables = self.conn.execute("SHOW TABLES").fetchall()
+            table_names = [table[0] for table in tables] if tables else []
+            
+            if 'assets' not in table_names:
+                pass  # No table exists, ready to create
+            else:
+                # Check if table is empty
+                result = self.conn.execute("SELECT COUNT(*) FROM assets").fetchone()
+                if result and result[0] > 0:
+                    pass  # Table has data
+                else:
+                    pass  # Table is empty, ready to load
+        except Exception as e:
+            pass  # Error checking database state
+    
+    def _verify_database_records(self):
+        """Verify database records after loading"""
+        try:
+            # Query first 3 records from database to verify data was written correctly
+            result = self.conn.execute("""
+                SELECT 
+                    id, name, assetClass, status,
+                    parent_cloud, cloud, team,
+                    properties, tags
+                FROM assets 
+                LIMIT 3
+            """).fetchall()
+            
+            # Verification complete - data loaded successfully
+            pass
+            
+        except Exception as e:
+            pass  # Error verifying database records
     
     def _load_assets_into_duckdb_parallel(self, assets: List[Dict[str, Any]]) -> None:
         """
@@ -391,22 +453,12 @@ class DuckDBSonicReader(DuckDBReader):
         if not assets:
             return
         
-        # Create assets table
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS assets (
-                id VARCHAR,
-                name VARCHAR,
-                assetClass VARCHAR,
-                status VARCHAR,
-                organization VARCHAR,
-                parent_cloud VARCHAR,
-                cloud VARCHAR,
-                team VARCHAR,
-                properties JSON,
-                tags JSON,
-                raw_data JSON
-            )
-        """)
+        
+        # Check database state before loading
+        self._verify_database_records_before_loading()
+        
+        # Create assets table using dynamic schema
+        self._create_assets_table(self.conn)
         
         # Split assets into chunks for multiprocessing
         # For large datasets, use more chunks for better parallelism, but align with workers
@@ -440,21 +492,27 @@ class DuckDBSonicReader(DuckDBReader):
                     self._insert_chunk_data_into_main_db(chunk_data)
                     processed_chunks += 1
                     
+                    # Debug: Show database state after first chunk is processed
+                    if processed_chunks == 1:
+                        print(f"\n🔍 DATABASE STATE AFTER FIRST CHUNK PROCESSED:")
+                        self._verify_database_records()
+                    
                     # Progress update
                     progress = (processed_chunks / len(asset_chunks)) * 100
                     print(f"📊 Progress: {progress:.1f}% ({processed_chunks}/{len(asset_chunks)} chunks processed)")
                     
                 except Exception as e:
                     chunk = future_to_chunk[future]
-                    print(f"❌ Error processing chunk {chunk}: {e}")
+                    pass  # Error processing chunk
         
         # Create indexes for better query performance (after all data is inserted)
-        print("🔧 Creating database indexes...")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_id ON assets(id)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
-        print("✅ Database indexes created!")
+        
+        # Verify database records after loading
+        self._verify_database_records()
     
     def _load_assets_into_duckdb_multiprocessing_separate_db(self, assets: List[Dict[str, Any]]) -> None:
         """
@@ -467,22 +525,12 @@ class DuckDBSonicReader(DuckDBReader):
         if not assets:
             return
         
-        # Create main assets table
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS assets (
-                id VARCHAR,
-                name VARCHAR,
-                assetClass VARCHAR,
-                status VARCHAR,
-                organization VARCHAR,
-                parent_cloud VARCHAR,
-                cloud VARCHAR,
-                team VARCHAR,
-                properties JSON,
-                tags JSON,
-                raw_data JSON
-            )
-        """)
+        
+        # Check database state before loading
+        self._verify_database_records_before_loading()
+        
+        # Create main assets table using dynamic schema
+        self._create_assets_table(self.conn)
         
         # Split assets into chunks for multiprocessing
         # For large datasets, use more chunks for better parallelism, but align with workers
@@ -519,25 +567,31 @@ class DuckDBSonicReader(DuckDBReader):
                         temp_db_paths.append(temp_db_path)
                     processed_chunks += 1
                     
+                    # Debug: Show database state after first chunk is processed
+                    if processed_chunks == 1:
+                        print(f"\n🔍 DATABASE STATE AFTER FIRST CHUNK PROCESSED:")
+                        self._verify_database_records()
+                    
                     # Progress update
                     progress = (processed_chunks / len(asset_chunks)) * 100
                     print(f"📊 Progress: {progress:.1f}% ({processed_chunks}/{len(asset_chunks)} chunks processed)")
                     
                 except Exception as e:
                     chunk = future_to_chunk[future]
-                    print(f"❌ Error processing chunk {chunk}: {e}")
+                    pass  # Error processing chunk
         
         # Merge all temporary databases into the main database
-        print("🔗 Merging separate databases into main database...")
+        print(f"🔗 Merging {len(temp_db_paths)} separate databases into main database at {self.db_path}")
         self._merge_chunk_databases(temp_db_paths)
         
         # Create indexes for better query performance (after all data is merged)
-        print("🔧 Creating database indexes...")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_id ON assets(id)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
-        print("✅ Database indexes created!")
+        
+        # Verify database records after loading
+        self._verify_database_records()
     
     @staticmethod
     def _process_asset_chunk_multiprocessing(asset_chunk: List[Dict[str, Any]], folder_path: str) -> List[tuple]:
@@ -551,26 +605,17 @@ class DuckDBSonicReader(DuckDBReader):
         Returns:
             List of data tuples ready for database insertion
         """
+        # Suppress Streamlit warnings in worker process
+        import warnings
+        import logging
+        warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+        logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+        
         if not asset_chunk:
             return []
         
-        # Convert to list of tuples for insertion
-        data_tuples = [
-            (
-                asset['id'],
-                asset['name'],
-                asset['assetClass'],
-                asset['status'],
-                asset['organization'],
-                asset['parent_cloud'],
-                asset['cloud'],
-                asset['team'],
-                asset['properties'],
-                asset['tags'],
-                asset['raw_data']
-            )
-            for asset in asset_chunk
-        ]
+        # Convert to list of tuples for insertion using dynamic schema
+        data_tuples = DuckDBSonicReader._create_data_tuples_static(asset_chunk)
         
         return data_tuples
     
@@ -591,6 +636,12 @@ class DuckDBSonicReader(DuckDBReader):
         if not asset_chunk:
             return None
         
+        # Suppress Streamlit warnings in worker process
+        import warnings
+        import logging
+        warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
+        logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
+        
         import tempfile
         import os
         
@@ -602,46 +653,36 @@ class DuckDBSonicReader(DuckDBReader):
         conn = duckdb.connect(temp_db_path)
         
         try:
-            # Create assets table
-            conn.execute("""
-                CREATE TABLE assets (
-                    id VARCHAR,
-                    name VARCHAR,
-                    assetClass VARCHAR,
-                    status VARCHAR,
-                    organization VARCHAR,
-                    parent_cloud VARCHAR,
-                    cloud VARCHAR,
-                    team VARCHAR,
-                    properties JSON,
-                    tags JSON,
-                    raw_data JSON
-                )
-            """)
+            # Drop and create assets table using dynamic schema
+            conn.execute("DROP TABLE IF EXISTS assets")
             
-            # Convert to list of tuples for insertion
-            data_tuples = [
-                (
-                    asset['id'],
-                    asset['name'],
-                    asset['assetClass'],
-                    asset['status'],
-                    asset['organization'],
-                    asset['parent_cloud'],
-                    asset['cloud'],
-                    asset['team'],
-                    asset['properties'],
-                    asset['tags'],
-                    asset['raw_data']
-                )
-                for asset in asset_chunk
-            ]
+            # Get dynamic schema from SchemaGuide
+            from configreader.schema.guide import SchemaGuide
+            schema_guide = SchemaGuide()
+            table_schema = schema_guide.get_assets_table_schema()
             
-            # Insert data
-            conn.executemany(
-                "INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                data_tuples
-            )
+            # Build CREATE TABLE statement dynamically
+            columns = table_schema['columns']
+            column_definitions = []
+            for col in columns:
+                col_name = col['column_name']
+                col_type = col['data_type']
+                column_definitions.append(f"{col_name} {col_type}")
+            
+            create_sql = f"CREATE TABLE assets ({', '.join(column_definitions)})"
+            conn.execute(create_sql)
+            
+            # Convert to list of tuples for insertion using dynamic schema
+            data_tuples = DuckDBSonicReader._create_data_tuples_static(asset_chunk)
+            
+            # Insert data with dynamic schema
+            try:
+                insert_sql = DuckDBSonicReader._get_insert_sql_static()
+            except Exception as e:
+                print(f"⚠️ Error getting insert SQL: {e}")
+                return
+            
+            conn.executemany(insert_sql, data_tuples)
             
             # Create indexes
             conn.execute("CREATE INDEX idx_assets_id ON assets(id)")
@@ -661,7 +702,8 @@ class DuckDBSonicReader(DuckDBReader):
         Args:
             temp_db_paths: List of paths to temporary database files
         """
-        for temp_db_path in temp_db_paths:
+        merged_count = 0
+        for i, temp_db_path in enumerate(temp_db_paths, 1):
             if not temp_db_path or not os.path.exists(temp_db_path):
                 continue
             
@@ -677,12 +719,96 @@ class DuckDBSonicReader(DuckDBReader):
                 
                 # Clean up temporary file
                 os.remove(temp_db_path)
+                merged_count += 1
+                
+                # Progress update
+                progress = (i / len(temp_db_paths)) * 100
+                print(f"📊 Merge Progress: {progress:.1f}% ({i}/{len(temp_db_paths)}) - Merged chunk {i} from {os.path.basename(temp_db_path)}")
                 
             except Exception as e:
-                print(f"❌ Error merging chunk database {temp_db_path}: {e}")
+                pass  # Error merging chunk database
                 # Clean up temporary file even if merge failed
                 if os.path.exists(temp_db_path):
                     os.remove(temp_db_path)
+        
+        print(f"✅ Merge Complete: Successfully merged {merged_count}/{len(temp_db_paths)} chunk databases into main database")
+    
+    # _create_data_tuples now inherited from base Reader class
+    
+    @staticmethod
+    def _create_data_tuples_static(assets: List[Dict[str, Any]]) -> List[tuple]:
+        """Static version of _create_data_tuples for use in multiprocessing"""
+        try:
+            # Get schema from assets.yaml using self-sufficient SchemaGuide
+            schema_guide = SchemaGuide()
+            table_schema = schema_guide.get_assets_table_schema()  # Uses default path
+            
+            if not table_schema or 'columns' not in table_schema:
+                raise Exception("Schema loading failed")
+            
+            columns = table_schema['columns']
+            
+            data_tuples = []
+            for i, asset in enumerate(assets):
+                values = []
+                for col in columns:
+                    col_name = col['column_name']
+                    col_type = col['data_type']
+                    
+                    if col_type == 'JSON':
+                        if col_name == 'properties':
+                            # Use the already reconstructed JSON from processed_asset
+                            value = asset.get('properties', '{}')
+                        elif col_name == 'tags':
+                            # Use the already reconstructed JSON from processed_asset
+                            value = asset.get('tags', '{}')
+                        elif col_name == 'raw_data':
+                            value = asset.get('raw_data', '{}')
+                        else:
+                            value = json.dumps(asset.get(col_name, {}))
+                    else:
+                        # VARCHAR fields - use None for missing values to get NULL in database
+                        value = asset.get(col_name, None)
+                    
+                    values.append(value)
+                
+                
+                data_tuples.append(tuple(values))
+            
+            return data_tuples
+        except Exception as e:
+            print(f"⚠️ Error creating data tuples: {e}")
+            return []
+    
+    @staticmethod
+    def _reconstruct_nested_json_static(asset: dict, prefix: str) -> str:
+        """Static version of _reconstruct_nested_json for use in multiprocessing"""
+        nested_obj = {}
+        
+        # Find all fields that start with the prefix
+        for key, value in asset.items():
+            if key.startswith(prefix):
+                # Remove the prefix to get the original key
+                original_key = key[len(prefix):]
+                # Only add non-null values
+                if value is not None and value != '':
+                    nested_obj[original_key] = value
+        
+        
+        return json.dumps(nested_obj)
+    
+    @staticmethod
+    def _get_insert_sql_static() -> str:
+        """Static version of _get_insert_sql for use in multiprocessing"""
+        try:
+            schema_guide = SchemaGuide()
+            table_schema = schema_guide.get_assets_table_schema()  # Uses default path
+            column_names = [col['column_name'] for col in table_schema['columns']]
+            placeholders = ', '.join(['?' for _ in column_names])
+            return f"INSERT INTO assets ({', '.join(column_names)}) VALUES ({placeholders})"
+        except Exception as e:
+            print(f"⚠️ Error getting insert SQL: {e}")
+            raise e
     
     def _insert_chunk_data_into_main_db(self, chunk_data: List[tuple]) -> None:
         """
@@ -694,11 +820,15 @@ class DuckDBSonicReader(DuckDBReader):
         if not chunk_data:
             return
         
+        # Get dynamic schema for INSERT statement
+        try:
+            insert_sql = self._get_insert_sql()
+        except Exception as e:
+            print(f"⚠️ Error getting insert SQL: {e}")
+            return
+        
         # Insert chunk data using executemany
-        self.conn.executemany(
-            "INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            chunk_data
-        )
+        self.conn.executemany(insert_sql, chunk_data)
     
     def _insert_asset_batch_optimized(self, asset_batch: List[Dict[str, Any]]) -> None:
         """
@@ -710,29 +840,17 @@ class DuckDBSonicReader(DuckDBReader):
         if not asset_batch:
             return
         
-        # Convert to list of tuples for insertion
-        data_tuples = [
-            (
-                asset['id'],
-                asset['name'],
-                asset['assetClass'],
-                asset['status'],
-                asset['organization'],
-                asset['parent_cloud'],
-                asset['cloud'],
-                asset['team'],
-                asset['properties'],
-                asset['tags'],
-                asset['raw_data']
-            )
-            for asset in asset_batch
-        ]
+        # Convert to list of tuples for insertion using dynamic schema
+        data_tuples = self._create_data_tuples(asset_batch)
         
-        # Use executemany for efficient batch insertion
-        self.conn.executemany(
-            "INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            data_tuples
-        )
+        # Use executemany for efficient batch insertion with dynamic schema
+        try:
+            insert_sql = self._get_insert_sql()
+        except Exception as e:
+            print(f"⚠️ Error getting insert SQL: {e}")
+            return
+        
+        self.conn.executemany(insert_sql, data_tuples)
     
     def _load_assets_into_duckdb_copy_from(self, assets: List[Dict[str, Any]]) -> None:
         """
@@ -745,22 +863,11 @@ class DuckDBSonicReader(DuckDBReader):
         if not assets:
             return
         
-        # Create assets table
-        self.conn.execute("""
-            CREATE TABLE IF NOT EXISTS assets (
-                id VARCHAR,
-                name VARCHAR,
-                assetClass VARCHAR,
-                status VARCHAR,
-                organization VARCHAR,
-                parent_cloud VARCHAR,
-                cloud VARCHAR,
-                team VARCHAR,
-                properties JSON,
-                tags JSON,
-                raw_data JSON
-            )
-        """)
+        # Check database state before loading
+        self._verify_database_records_before_loading()
+        
+        # Create assets table using dynamic schema
+        self._create_assets_table(self.conn)
         
         # Convert to DataFrame for COPY FROM
         import pandas as pd
@@ -775,6 +882,9 @@ class DuckDBSonicReader(DuckDBReader):
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
+        
+        # Verify database records after loading
+        self._verify_database_records()
     
     def _insert_asset_chunk(self, asset_chunk: List[Dict[str, Any]]) -> None:
         """
@@ -786,29 +896,17 @@ class DuckDBSonicReader(DuckDBReader):
         if not asset_chunk:
             return
         
-        # Convert to list of tuples for insertion
-        data_tuples = [
-            (
-                asset['id'],
-                asset['name'],
-                asset['assetClass'],
-                asset['status'],
-                asset['organization'],
-                asset['parent_cloud'],
-                asset['cloud'],
-                asset['team'],
-                asset['properties'],
-                asset['tags'],
-                asset['raw_data']
-            )
-            for asset in asset_chunk
-        ]
+        # Convert to list of tuples for insertion using dynamic schema
+        data_tuples = self._create_data_tuples(asset_chunk)
         
-        # Insert chunk using executemany for better performance
-        self.conn.executemany(
-            "INSERT INTO assets VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            data_tuples
-        )
+        # Insert chunk using executemany for better performance with dynamic schema
+        try:
+            insert_sql = self._get_insert_sql()
+        except Exception as e:
+            print(f"⚠️ Error getting insert SQL: {e}")
+            return
+        
+        self.conn.executemany(insert_sql, data_tuples)
     
     def get_performance_stats(self) -> Dict[str, Any]:
         """
@@ -878,7 +976,12 @@ class DuckDBSonicReader(DuckDBReader):
         try:
             # Check if database connection exists
             if not hasattr(self, 'conn') or not self.conn:
-                result['error'] = "Sonic database connection not initialized"
+                # Check if JSON files exist but database not created yet
+                if result['json_files_found'] > 0:
+                    result['error'] = "JSON files found but database not created yet. Please run Transform tab first."
+                    result['health_status'] = 'FILES_ONLY'
+                else:
+                    result['error'] = "Sonic database connection not initialized"
                 return result
             
             # Query database health

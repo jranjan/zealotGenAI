@@ -1,28 +1,45 @@
 """
-Flattener - Handles data flattening operations
+Flattener - Handles data flattening operations using FlattenerHelper
+
+This module provides a sequential data flattener that leverages FlattenerHelper
+for all flattening operations, ensuring consistency and eliminating code duplication.
 """
 
 import json
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from .base import Transformer
 from .utils.flattener_helper import FlattenerHelper
 
 
 class Flattener(Transformer):
-    """Handles data flattening operations using sequential processing"""
+    """
+    Sequential data flattener that uses FlattenerHelper for all operations.
+    
+    This class provides a clean interface for flattening JSON assets while
+    delegating all actual flattening logic to FlattenerHelper. It handles
+    file processing, directory operations, and key mapping analysis.
+    """
     
     def __init__(self):
+        """Initialize the flattener."""
         super().__init__()
     
     def transform_directory(self, source_folder: str, target_folder: str) -> Dict[str, Any]:
-        """Transform all JSON files in a source directory to a target directory."""
-        # Use base class setup logic
+        """
+        Transform all JSON files in a source directory to a target directory.
+        
+        Args:
+            source_folder: Path to source directory containing JSON files
+            target_folder: Path to target directory for flattened files
+            
+        Returns:
+            Dictionary containing transformation results and statistics
+        """
         setup_result = self.setup_directories(source_folder, target_folder)
         if not setup_result['success']:
             return setup_result
         
-        # Extract setup results
         source_path = setup_result['source_path']
         target_path = setup_result['target_path']
         json_files = setup_result['json_files']
@@ -73,11 +90,20 @@ class Flattener(Transformer):
             successful=successful,
             failed=failed,
             files=results,
-            processing_time=0  # Sequential processing doesn't track time
+            processing_time=0
         )
     
     def transform_file(self, source_file: str, target_file: str) -> bool:
-        """Transform a single file."""
+        """
+        Transform a single file.
+        
+        Args:
+            source_file: Path to source file
+            target_file: Path to target file
+            
+        Returns:
+            True if successful, False otherwise
+        """
         try:
             Path(target_file).parent.mkdir(parents=True, exist_ok=True)
             result = self._process_single_file(source_file, str(Path(target_file).parent))
@@ -87,19 +113,27 @@ class Flattener(Transformer):
             return False
     
     def _process_single_file(self, file_path: str, target_dir: str) -> Dict[str, Any]:
-        """Process a single JSON file and create flattened version."""
+        """
+        Process a single JSON file and create flattened version using FlattenerHelper.
+        
+        Args:
+            file_path: Path to source JSON file
+            target_dir: Path to target directory
+            
+        Returns:
+            Dictionary containing processing results
+        """
         try:
             source_path = Path(file_path)
             target_path = Path(target_dir)
             
-            # Create flattened filename
             flattened_filename = f"{source_path.stem}_flattened.json"
             output_path = target_path / flattened_filename
             
             # Load and normalize JSON data
             assets = self._load_and_normalize_json(file_path)
             
-            # Flatten assets with analysis
+            # Use FlattenerHelper to flatten assets with analysis
             flattened_assets, missing_attribution, missing_properties, missing_name, missing_parent_cloud = self._flatten_assets_with_analysis(assets)
             
             # Save flattened data
@@ -133,7 +167,17 @@ class Flattener(Transformer):
             )
     
     def get_asset_key_mappings(self, source_file_path: str, flattened_file_path: str, asset_index: int = 0) -> Dict[str, Any]:
-        """Get key mappings for a specific asset in a file."""
+        """
+        Get key mappings for a specific asset using FlattenerHelper patterns.
+        
+        Args:
+            source_file_path: Path to source JSON file
+            flattened_file_path: Path to flattened JSON file
+            asset_index: Index of asset to analyze
+            
+        Returns:
+            Dictionary containing key mappings and analysis results
+        """
         try:
             # Load source and flattened data
             with open(source_file_path, 'r', encoding='utf-8') as f:
@@ -155,44 +199,17 @@ class Flattener(Transformer):
             source_asset = source_data[asset_index]
             flattened_asset = flattened_data[asset_index]
             
-            # Get key mappings with values
-            mappings = self._get_key_mappings_with_values([source_asset], [flattened_asset])
+            
+            # Get key mappings using FlattenerHelper patterns
+            mappings = self._get_key_mappings_using_helper(source_asset, flattened_asset)
             
             # Calculate summary statistics
-            direct_values = sum(1 for m in mappings if m.get('type') == 'value')
-            objects = sum(1 for m in mappings if m.get('type') == 'object')
-            arrays = sum(1 for m in mappings if m.get('type') == 'array')
+            summary = self._calculate_summary_statistics(mappings, source_asset)
             
-            # Check for missing attribution and properties
-            is_missing_attribution = 'assetAttributions' not in source_asset or not source_asset.get('assetAttributions')
-            is_missing_properties = 'properties' not in source_asset or not source_asset.get('properties')
-            
-            # Check for missing name and parent cloud
-            name_value = source_asset.get('name')
-            has_name = bool(name_value and str(name_value).strip() not in ['', 'None', 'null'])
-            
-            has_parent_cloud = any(
-                mapping.get('flattened_key') == 'parent_cloud' and 
-                mapping.get('value') and 
-                str(mapping.get('value')).strip() not in ['None', 'null', '']
-                for mapping in mappings
-            )
-            
-            summary = {
-                'total_mappings': len(mappings),
-                'direct_values': direct_values,
-                'objects': objects,
-                'arrays': arrays,
-                'missing_attribution': is_missing_attribution,
-                'missing_properties': is_missing_properties,
-                'has_name': has_name,
-                'has_parent_cloud': has_parent_cloud
-            }
-            
-            # Add missing attribution/properties flags to each mapping
+            # Add flags to each mapping
             for mapping in mappings:
-                mapping['is_missing_attribution'] = is_missing_attribution
-                mapping['is_missing_properties'] = is_missing_properties
+                mapping['is_missing_attribution'] = summary['missing_attribution']
+                mapping['is_missing_properties'] = summary['missing_properties']
             
             asset_info = {
                 'name': source_asset.get('name', 'Unknown'),
@@ -220,131 +237,109 @@ class Flattener(Transformer):
                 'asset_index': asset_index
             }
     
-    def _get_key_mappings_with_values(self, source_assets: List[Dict], flattened_assets: List[Dict]) -> List[Dict]:
-        """Get all key mappings with their values and types"""
+    def _get_key_mappings_using_helper(self, source_asset: Dict[str, Any], flattened_asset: Dict[str, Any]) -> List[Dict]:
+        """
+        Get key mappings using FlattenerHelper patterns.
+        
+        Args:
+            source_asset: Original asset data
+            flattened_asset: Flattened asset data
+            
+        Returns:
+            List of key mapping dictionaries
+        """
         mappings = []
-
-        for source_asset, flattened_asset in zip(source_assets, flattened_assets):
-            # Get all flattened keys with their values
-            flattened_keys = self._get_all_keys_with_values(flattened_asset)
-
-            # For each flattened key, find its corresponding original key
-            for flat_key, (flat_value, flat_type) in flattened_keys.items():
-                original_key = self._find_original_key_for_flattened(source_asset, flat_key)
-
-                if original_key:
-                    # Get the original value
-                    orig_value = self._get_nested_value(source_asset, original_key)
-                    orig_type = self._get_value_type(orig_value)
-                else:
-                    # For flattened-only fields (like ownership fields), use the flattened value
-                    orig_value = None
-                    orig_type = flat_type
-
-                mappings.append({
-                    'original_key': original_key or 'N/A',
-                    'flattened_key': flat_key,
-                    'value': str(flat_value)[:100] + ('...' if len(str(flat_value)) > 100 else ''),
-                    'type': flat_type
-                })
-
+        
+        # Process each flattened key using FlattenerHelper patterns
+        for flat_key, flat_value in flattened_asset.items():
+            # Determine original key based on FlattenerHelper patterns
+            original_key = self._get_original_key_from_flattened(flat_key)
+            
+            # Get value type
+            value_type = self._get_value_type(flat_value)
+            
+            mappings.append({
+                'original_key': original_key,
+                'flattened_key': flat_key,
+                'value': str(flat_value),
+                'type': value_type
+            })
+        
         return mappings
     
-    def _get_all_keys_with_values(self, data: Dict, prefix: str = "") -> Dict[str, tuple]:
-        """Recursively get all keys with their values and types"""
-        result = {}
+    def _get_original_key_from_flattened(self, flattened_key: str) -> str:
+        """
+        Get original key path from flattened key using FlattenerHelper patterns.
         
-        for key, value in data.items():
-            current_key = f"{prefix}.{key}" if prefix else key
+        Args:
+            flattened_key: Flattened key (e.g., 'properties_mbu')
             
-            if isinstance(value, dict):
-                result.update(self._get_all_keys_with_values(value, current_key))
-            elif isinstance(value, list):
-                for i, item in enumerate(value):
-                    if isinstance(item, dict):
-                        result.update(self._get_all_keys_with_values(item, f"{current_key}[{i}]"))
-                    else:
-                        result[f"{current_key}[{i}]"] = (item, self._get_value_type(item))
-            else:
-                result[current_key] = (value, self._get_value_type(value))
-        
-        return result
-    
-    def _find_original_key_for_flattened(self, source_data: Dict, flattened_key: str) -> str:
-        """Find the original nested key path for a flattened key"""
-        # Handle array indices in flattened key
-        if '[' in flattened_key and ']' in flattened_key:
-            # Split by array indices
-            parts = []
-            current = ""
-            i = 0
-            while i < len(flattened_key):
-                if flattened_key[i] == '[':
-                    if current:
-                        parts.append(current)
-                        current = ""
-                    # Find the closing bracket
-                    j = i + 1
-                    while j < len(flattened_key) and flattened_key[j] != ']':
-                        j += 1
-                    if j < len(flattened_key):
-                        index = flattened_key[i+1:j]
-                        parts.append(f"[{index}]")
-                        i = j + 1
-                    else:
-                        current += flattened_key[i]
-                        i += 1
-                else:
-                    current += flattened_key[i]
-                    i += 1
-            if current:
-                parts.append(current)
+        Returns:
+            Original key path (e.g., 'properties.mbu')
+        """
+        if flattened_key.startswith('properties_'):
+            return f"properties.{flattened_key.replace('properties_', '')}"
+        elif flattened_key.startswith('tags_'):
+            return f"tags.{flattened_key.replace('tags_', '')}"
+        elif flattened_key in ['parent_cloud', 'parent_cloud_id', 'parent_cloud_owner_email', 
+                              'cloud', 'cloud_id', 'cloud_owner_email',
+                              'team', 'team_id', 'team_owner_email']:
+            return f"assetAttributions[0].{flattened_key}"
         else:
-            parts = flattened_key.split('.')
-        
-        # Reconstruct the original key path
-        result_parts = []
-        for part in parts:
-            if part.startswith('[') and part.endswith(']'):
-                result_parts.append(part)
-            else:
-                result_parts.append(part)
-        
-        return '.'.join(result_parts) if '[' in flattened_key and ']' in flattened_key else flattened_key
+            return flattened_key
     
-    def _get_nested_value(self, data: Dict, key_path: str) -> Any:
-        """Get a value from nested dictionary using dot notation key path"""
-        keys = key_path.split('.')
-        current = data
+    def _calculate_summary_statistics(self, mappings: List[Dict], source_asset: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Calculate summary statistics for the mappings.
         
-        for key in keys:
-            if '[' in key and ']' in key:
-                # Handle array access
-                base_key = key.split('[')[0]
-                if base_key in current:
-                    current = current[base_key]
-                    # Extract index
-                    index_str = key.split('[')[1].split(']')[0]
-                    try:
-                        index = int(index_str)
-                        if isinstance(current, list) and 0 <= index < len(current):
-                            current = current[index]
-                        else:
-                            return None
-                    except (ValueError, IndexError):
-                        return None
-                else:
-                    return None
-            else:
-                if key in current:
-                    current = current[key]
-                else:
-                    return None
+        Args:
+            mappings: List of key mappings
+            source_asset: Original asset data
+            
+        Returns:
+            Dictionary containing summary statistics
+        """
+        # Count by type
+        direct_values = sum(1 for m in mappings if m.get('type') in ['value', 'string', 'number', 'boolean', 'null'])
+        objects = sum(1 for m in mappings if m.get('type') == 'object')
+        arrays = sum(1 for m in mappings if m.get('type') == 'array')
         
-        return current
+        # Check for missing data
+        is_missing_attribution = 'assetAttributions' not in source_asset or not source_asset.get('assetAttributions')
+        is_missing_properties = 'properties' not in source_asset or not source_asset.get('properties')
+        
+        # Check for missing name and parent cloud
+        name_value = source_asset.get('name')
+        has_name = bool(name_value and str(name_value).strip() not in ['', 'None', 'null'])
+        
+        has_parent_cloud = any(
+            mapping.get('flattened_key') == 'parent_cloud' and 
+            mapping.get('value') and 
+            str(mapping.get('value')).strip() not in ['None', 'null', '']
+            for mapping in mappings
+        )
+        
+        return {
+            'total_mappings': len(mappings),
+            'direct_values': direct_values,
+            'objects': objects,
+            'arrays': arrays,
+            'missing_attribution': is_missing_attribution,
+            'missing_properties': is_missing_properties,
+            'has_name': has_name,
+            'has_parent_cloud': has_parent_cloud
+        }
     
     def _get_value_type(self, value: Any) -> str:
-        """Get the type of a value for display purposes"""
+        """
+        Get the type of a value for display purposes.
+        
+        Args:
+            value: Value to analyze
+            
+        Returns:
+            String representation of the value type
+        """
         if isinstance(value, dict):
             return "object"
         elif isinstance(value, list):
@@ -361,8 +356,14 @@ class Flattener(Transformer):
             return "value"
     
     def get_performance_info(self) -> Dict[str, Any]:
-        """Get performance information about the flattener"""
+        """
+        Get performance information about the flattener.
+        
+        Returns:
+            Dictionary containing performance information
+        """
         return {
-            'flattener_type': 'Flattener (Sequential)'
+            'flattener_type': 'Flattener (Sequential)',
+            'uses_flattener_helper': True,
+            'optimized': True
         }
-    
