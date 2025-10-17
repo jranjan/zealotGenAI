@@ -1,5 +1,5 @@
 """
-Flattener - Handles data flattening operations using FlattenerHelper
+BasicFlattener - Handles data flattening operations using FlattenerHelper
 
 This module provides a sequential data flattener that leverages FlattenerHelper
 for all flattening operations, ensuring consistency and eliminating code duplication.
@@ -8,11 +8,10 @@ for all flattening operations, ensuring consistency and eliminating code duplica
 import json
 from pathlib import Path
 from typing import Dict, List, Any
-from .base import Transformer
-from .utils.flattener_helper import FlattenerHelper
+from ..base import Transformer
 
 
-class Flattener(Transformer):
+class BasicFlattener(Transformer):
     """
     Sequential data flattener that uses FlattenerHelper for all operations.
     
@@ -363,7 +362,7 @@ class Flattener(Transformer):
             Dictionary containing performance information
         """
         return {
-            'flattener_type': 'Flattener (Sequential)',
+            'flattener_type': 'BasicFlattener (Sequential)',
             'uses_flattener_helper': True,
             'optimized': True
         }

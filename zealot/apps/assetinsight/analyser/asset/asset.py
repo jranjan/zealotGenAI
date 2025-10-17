@@ -8,7 +8,7 @@ and analysis patterns.
 
 from typing import Any, Dict, List
 from abc import ABC, abstractmethod
-from .base import Analyser
+from ..base import Analyser
 
 
 class AssetAnalyser(Analyser):

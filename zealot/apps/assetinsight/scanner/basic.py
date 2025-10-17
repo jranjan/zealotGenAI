@@ -9,7 +9,7 @@ from typing import Dict, Any
 from .base import Scanner
 
 
-class SourceScanner(Scanner):
+class BasicScanner(Scanner):
     """Handles source data inspection and validation"""
     
     def __init__(self):

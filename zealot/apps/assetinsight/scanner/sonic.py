@@ -1,5 +1,5 @@
 """
-SupersonicSourceScanner - High-performance multiprocessing source data scanning operations
+SonicScanner - High-performance multiprocessing source data scanning operations
 """
 
 import json
@@ -17,7 +17,7 @@ warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 
-class SupersonicSourceScanner(Scanner):
+class SonicScanner(Scanner):
     """
     Supersonic-high-performance multiprocessing source data scanner.
     

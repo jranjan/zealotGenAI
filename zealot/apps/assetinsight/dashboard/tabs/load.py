@@ -85,16 +85,17 @@ class LoadTab(BaseTab):
             st.markdown("**Database Status Check**")
             
             with st.spinner("Checking database status..."):
-                # Use factory to create DuckDBSonicReader
+                # Use factory to create SonicMemoryDuckdb
                 try:
-                    from database import ReaderFactory
+                    from database.duckdb import DatabaseFactory
                     
-                    readiness_result = ReaderFactory.create_sonic_reader(
+                    reader = DatabaseFactory.create_sonic_reader(
                         target_folder,
                         max_workers=multiprocessing.cpu_count(),
                         batch_size=2000,
                         memory_limit_gb=4.0
                     )
+                    readiness_result = reader.check_data_readiness()
                     
                     # Display status information as metrics
                     col1, col2, col3, col4, col5 = st.columns(5)
@@ -144,15 +145,16 @@ class LoadTab(BaseTab):
         """Load database from normalized data"""
         try:
             with st.spinner("🗄️ Setting up database for high performance analytics..."):
-                # Use factory to create DuckDBSonicReader
-                from database import ReaderFactory
+                # Use factory to create SonicMemoryDuckdb
+                from database.duckdb import DatabaseFactory
                 
-                readiness_result = ReaderFactory.create_sonic_reader(
+                reader = DatabaseFactory.create_sonic_reader(
                     target_folder,
                     max_workers=multiprocessing.cpu_count(),
                     batch_size=2000,
                     memory_limit_gb=4.0
                 )
+                readiness_result = reader.check_data_readiness()
                 
                 if readiness_result.get('ready', False):
                     # Performance stats are already included in the factory result
@@ -166,7 +168,7 @@ class LoadTab(BaseTab):
                     # Database loaded successfully
                     result = {
                         'success': True,
-                        'message': 'Database loaded successfully with DuckDBSonicReader!',
+                        'message': 'Database loaded successfully with SonicMemoryDuckdb!',
                         'stats': {
                             'total_assets': readiness_result.get('object_count', 0),
                             'total_files': readiness_result.get('json_files_found', 0),
@@ -229,16 +231,17 @@ class LoadTab(BaseTab):
             return
         
         try:
-            # Use factory to create DuckDBSonicReader
-            from database import ReaderFactory
+            # Use factory to create SonicMemoryDuckdb
+            from database.duckdb import DatabaseFactory
             
             # Create sonic reader using factory
-            result = ReaderFactory.create_sonic_reader(
+            reader = DatabaseFactory.create_sonic_reader(
                 target_folder,
                 max_workers=multiprocessing.cpu_count(),
                 batch_size=2000,
                 memory_limit_gb=4.0
             )
+            result = reader.check_data_readiness()
             
             # Extract stats from factory result
             stats = {
@@ -498,13 +501,14 @@ class LoadTab(BaseTab):
         
         try:
             # Query database for this specific asset
-            from database import ReaderFactory
+            from database.duckdb import DatabaseFactory
             
-            result = ReaderFactory.create_sonic_reader(target_folder)
-            if result.get('ready', False):
-                # Get the reader instance to query the database
-                from database.reader.duckdb_sonic import DuckDBSonicReader
-                reader = DuckDBSonicReader(target_folder)
+            # Use factory pattern: create sonic reader directly
+            reader = DatabaseFactory.create_sonic_reader(target_folder)
+            
+            # Check if reader is ready
+            readiness_result = reader.check_data_readiness()
+            if readiness_result.get('ready', False):
                 
                 # Query for the specific asset
                 db_query = f"SELECT * FROM assets WHERE id = '{asset_id}'"

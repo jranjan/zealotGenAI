@@ -23,8 +23,10 @@ class Analyser(ABC):
     
     def create_reader(self, source_directory: str) -> None:
         """Create a database reader for the specified source directory."""
-        from database.reader.duckdb import DuckDBReader
-        self.reader = DuckDBReader.get_instance(source_directory)
+        from database.duckdb import DatabaseFactory
+        
+        # Use factory to create reader
+        self.reader = DatabaseFactory.create_basic_reader(source_directory)
     
     def close_reader(self) -> None:
         """Close the reader and clean up resources."""

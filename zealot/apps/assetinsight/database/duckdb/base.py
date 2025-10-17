@@ -44,10 +44,10 @@ class Reader(ABC):
                 col_type = col['data_type']
                 columns.append(f"{col_name} {col_type}")
             
-            create_sql = f"CREATE TABLE assets ({', '.join(columns)})"
+            create_sql = f"CREATE TABLE IF NOT EXISTS assets ({', '.join(columns)})"
             print(f"📋 Creating table with schema from assets.yaml...")
             conn.execute(create_sql)
-            print(f"✅ Table created with {len(columns)} columns")
+            print(f"✅ Table ensured with {len(columns)} columns")
             
         except Exception as e:
             print(f"⚠️ Error creating table from schema: {e}")

@@ -1,7 +1,7 @@
 """
-DuckDBSonicReader - High-performance multiprocessing DuckDB reader
+SonicMemoryDuckdb - High-performance multiprocessing DuckDB reader
 
-This module provides a multiprocessing-enabled version of DuckDBReader
+This module provides a multiprocessing-enabled version of BasicMemoryDuckdb
 that can load multiple JSON files in parallel for maximum performance.
 """
 
@@ -11,10 +11,8 @@ import multiprocessing as mp
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 import duckdb
-from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import time
-import threading
-from queue import Queue
 import orjson  # Faster JSON parsing
 import psutil  # For memory monitoring
 import warnings
@@ -24,29 +22,29 @@ import logging
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
-from .duckdb import DuckDBReader
+from .basic import BasicMemoryDuckdb
 from configreader import SchemaGuide
 
 
-class DuckDBSonicReader(DuckDBReader):
+class SonicMemoryDuckdb(BasicMemoryDuckdb):
     """
     High-performance DuckDB reader with multiprocessing support.
     
-    Extends DuckDBReader to load multiple JSON files in parallel using
+    Extends BasicMemoryDuckdb to load multiple JSON files in parallel using
     multiprocessing for maximum performance on large datasets.
     """
     
     def __new__(cls, folder_path: str, max_workers: Optional[int] = None, 
                  batch_size: int = 1000, memory_limit_gb: float = 2.0):
         """
-        Create a new DuckDBSonicReader instance.
+        Create a new SonicMemoryDuckdb instance.
         Override __new__ to handle additional parameters before parent initialization.
         """
         # Convert to string and normalize path
         folder_path_str = str(Path(folder_path).resolve())
         
         # Create instance using parent's __new__ with folder_path
-        instance = super(DuckDBSonicReader, cls).__new__(cls, folder_path_str)
+        instance = super(SonicMemoryDuckdb, cls).__new__(cls, folder_path_str)
         
         # Set Sonic-specific attributes immediately (before parent __init__ calls _setup_database)
         # Use all available CPU cores for maximum performance
@@ -64,7 +62,7 @@ class DuckDBSonicReader(DuckDBReader):
     def __init__(self, folder_path: str, max_workers: Optional[int] = None, 
                  batch_size: int = 1000, memory_limit_gb: float = 2.0):
         """
-        Initialize DuckDBSonicReader with multiprocessing support.
+        Initialize SonicMemoryDuckdb with multiprocessing support.
         a
         Args:
             folder_path: Path to folder containing JSON files
@@ -84,7 +82,7 @@ class DuckDBSonicReader(DuckDBReader):
             raise ValueError(f"Folder does not exist: {self.folder_path}")
         
         # Reset debug counter for this loading session
-        DuckDBSonicReader._debug_count = 0
+        SonicMemoryDuckdb._debug_count = 0
         
         # Find all JSON files with size information
         json_files = self._get_file_list_with_sizes()
@@ -137,6 +135,7 @@ class DuckDBSonicReader(DuckDBReader):
                 try:
                     chunk_assets, processed_count = future.result()
                     all_assets.extend(chunk_assets)
+                    # processed_count represents files in this chunk, so add it to total
                     self._processed_files += processed_count
                     self._update_progress()
                 except Exception as e:
@@ -255,7 +254,7 @@ class DuckDBSonicReader(DuckDBReader):
                 # Process each asset with optimized parsing
                 for asset in file_assets:
                     if isinstance(asset, dict):
-                        processed_asset = DuckDBSonicReader._process_single_asset_optimized(asset)
+                        processed_asset = SonicMemoryDuckdb._process_single_asset_optimized(asset)
                         if processed_asset:
                             assets.append(processed_asset)
                 
@@ -294,7 +293,7 @@ class DuckDBSonicReader(DuckDBReader):
             # Process each asset
             for asset in file_assets:
                 if isinstance(asset, dict):
-                    processed_asset = DuckDBSonicReader._process_single_asset_optimized(asset)
+                    processed_asset = MemorySonicDuckdb._process_single_asset_optimized(asset)
                     if processed_asset:
                         assets.append(processed_asset)
                         
@@ -316,15 +315,15 @@ class DuckDBSonicReader(DuckDBReader):
         """
         try:
             # Debug: Print first few assets being processed
-            if hasattr(DuckDBSonicReader, '_debug_count'):
-                DuckDBSonicReader._debug_count += 1
+            if hasattr(SonicMemoryDuckdb, '_debug_count'):
+                SonicMemoryDuckdb._debug_count += 1
             else:
-                DuckDBSonicReader._debug_count = 1
+                SonicMemoryDuckdb._debug_count = 1
             
             # The asset should already be flattened from the flattened files
             # Use the flattened data directly for properties and tags reconstruction
-            properties_json = DuckDBSonicReader._reconstruct_nested_json_static(asset, 'properties_')
-            tags_json = DuckDBSonicReader._reconstruct_nested_json_static(asset, 'tags_')
+            properties_json = SonicMemoryDuckdb._reconstruct_nested_json_static(asset, 'properties_')
+            tags_json = SonicMemoryDuckdb._reconstruct_nested_json_static(asset, 'tags_')
             raw_data_json = orjson.dumps(asset).decode('utf-8')
             
             
@@ -374,7 +373,7 @@ class DuckDBSonicReader(DuckDBReader):
         Returns:
             Processed asset dictionary or None if invalid
         """
-        return DuckDBSonicReader._process_single_asset_optimized(asset)
+        return SonicMemoryDuckdb._process_single_asset_optimized(asset)
     
     def _load_assets_into_duckdb(self, assets: List[Dict[str, Any]]) -> None:
         """
@@ -615,7 +614,7 @@ class DuckDBSonicReader(DuckDBReader):
             return []
         
         # Convert to list of tuples for insertion using dynamic schema
-        data_tuples = DuckDBSonicReader._create_data_tuples_static(asset_chunk)
+        data_tuples = SonicMemoryDuckdb._create_data_tuples_static(asset_chunk)
         
         return data_tuples
     
@@ -669,15 +668,15 @@ class DuckDBSonicReader(DuckDBReader):
                 col_type = col['data_type']
                 column_definitions.append(f"{col_name} {col_type}")
             
-            create_sql = f"CREATE TABLE assets ({', '.join(column_definitions)})"
+            create_sql = f"CREATE TABLE IF NOT EXISTS assets ({', '.join(column_definitions)})"
             conn.execute(create_sql)
             
             # Convert to list of tuples for insertion using dynamic schema
-            data_tuples = DuckDBSonicReader._create_data_tuples_static(asset_chunk)
+            data_tuples = SonicMemoryDuckdb._create_data_tuples_static(asset_chunk)
             
             # Insert data with dynamic schema
             try:
-                insert_sql = DuckDBSonicReader._get_insert_sql_static()
+                insert_sql = SonicMemoryDuckdb._get_insert_sql_static()
             except Exception as e:
                 print(f"⚠️ Error getting insert SQL: {e}")
                 return
@@ -954,7 +953,7 @@ class DuckDBSonicReader(DuckDBReader):
     
     def check_data_readiness(self) -> Dict[str, Any]:
         """
-        Check data readiness for DuckDBSonicReader with multiprocessing support.
+        Check data readiness for SonicMemoryDuckdb with multiprocessing support.
         This method never raises exceptions - all errors are returned in the result.
         
         Returns:
@@ -1040,9 +1039,9 @@ class DuckDBSonicReader(DuckDBReader):
 
 # Factory function for easy creation
 def create_duckdb_sonic_reader(folder_path: str, max_workers: Optional[int] = None, 
-                              batch_size: int = 1000, memory_limit_gb: float = 2.0) -> DuckDBSonicReader:
+                               batch_size: int = 1000, memory_limit_gb: float = 2.0) -> SonicMemoryDuckdb:
     """
-    Create a DuckDBSonicReader instance.
+    Create a SonicMemoryDuckdb instance.
     
     Args:
         folder_path: Path to folder containing JSON files
@@ -1051,6 +1050,6 @@ def create_duckdb_sonic_reader(folder_path: str, max_workers: Optional[int] = No
         memory_limit_gb: Memory limit in GB before switching to streaming mode
         
     Returns:
-        DuckDBSonicReader instance
+        SonicMemoryDuckdb instance
     """
-    return DuckDBSonicReader(folder_path, max_workers, batch_size, memory_limit_gb)
+    return SonicMemoryDuckdb(folder_path, max_workers, batch_size, memory_limit_gb)
