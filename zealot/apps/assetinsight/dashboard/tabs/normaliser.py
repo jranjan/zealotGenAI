@@ -15,7 +15,7 @@ from collections import defaultdict
 current_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(current_dir))
 
-from transformer import TransformerFactory
+from transformer import TransformerFactory, TransformerType
 from common.system_data import SystemDirectory
 from utils.dataframe_utils import safe_dataframe
 from .base import BaseTab
@@ -30,7 +30,8 @@ class NormaliserTab(BaseTab):
             description=""
         )
         # Use factory to create SonicFlattener for maximum performance (multiprocessing)
-        self.transformer = TransformerFactory.create_sonic_flattener(
+        self.transformer = TransformerFactory.create_transformer(
+            TransformerType.SONIC_NORMALISER,
             max_workers=min(8, multiprocessing.cpu_count())  # Optimized for multiprocessing
         )
         # Initialize target folder (auto-generate by default)
@@ -38,33 +39,42 @@ class NormaliserTab(BaseTab):
     
     def _render_content(self):
         """Render normaliser UI"""
-        # Source Info Section
         self._render_target_selection()
         st.markdown("---")
-        
-        # Check if source data is available
+        self._render_normalise_button()
+        self._render_results()
+    
+    def _render_normalise_button(self):
+        """Render normalise button and handle click."""
         source_data = st.session_state.get('source_data', {})
         source_folder = source_data.get('source_folder', '')
         
-        # Transform Button Section
         if st.button("🔧 Normalise Data", key="normalise_data", width='stretch', type='primary'):
             if source_folder and Path(source_folder).exists():
                 self._normalise_data()
             else:
                 st.warning("⚠️ Please provide a valid source folder path")
-        
-        # Results Section
+    
+    def _render_results(self):
+        """Render normalisation results if available."""
         if st.session_state.get('normalised_data'):
             st.markdown("---")
-            self._render_results()
+            self._render_normalise_results()
     
     def _render_target_selection(self):
         """Render target directory selection UI"""
         source_data = st.session_state.get('source_data', {})
         source_folder = source_data.get('source_folder', '')
-        st.info(f"**Source:** `{source_folder if source_folder else 'Unknown'}`")
         
-        # Check if selected folder exists
+        st.info(f"**Source:** `{source_folder if source_folder else 'Unknown'}`")
+        self._validate_source_folder(source_folder)
+        self._show_output_path(source_folder)
+        
+        # Set target folder to None (auto-generate)
+        self.target_folder = None
+    
+    def _validate_source_folder(self, source_folder):
+        """Validate source folder existence."""
         if source_folder:
             if Path(source_folder).exists():
                 st.success("✅ Selected folder exists")
@@ -72,23 +82,19 @@ class NormaliserTab(BaseTab):
                 st.error("❌ Selected folder does not exist")
         else:
             st.warning("⚠️ No folder selected")
-        
-        # Show a placeholder path that will be generated dynamically
+    
+    def _show_output_path(self, source_folder):
+        """Show output path placeholder."""
         project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve()
         
         if source_folder and Path(source_folder).exists():
             source_path = Path(source_folder).resolve()
-            # Extract asset class from source path
             asset_class = source_path.name
-            # Show the new stage directory structure with timestamp
             placeholder_path = str(source_path.parent / SystemDirectory.get_stage_folder() / asset_class / f"{asset_class}_normalised_<timestamp>")
         else:
             placeholder_path = str(project_root / "output" / "flattened_<timestamp>")
         
         st.info(f"**Output will be created at:** `{placeholder_path}`")
-        
-        # Set target folder to None (auto-generate)
-        self.target_folder = None
 
     def _normalise_data(self):
         """Normalise data and update session state"""

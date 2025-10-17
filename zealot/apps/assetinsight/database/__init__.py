@@ -2,8 +2,9 @@
 Database package for efficient data access and processing
 """
 
-from .duckdb import DatabaseFactory
+from .duckdb import DatabaseFactory, DatabaseType
 
 __all__ = [
-    'DatabaseFactory'
+    'DatabaseFactory',
+    'DatabaseType'
 ]

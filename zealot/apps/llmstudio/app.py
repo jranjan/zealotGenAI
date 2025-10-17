@@ -497,7 +497,7 @@ class LLMStudioApp(LLMApp):
     def render_footer(self):
         """Render the app footer with copyright notice and logo"""
         render_llm_studio_footer(
-            logo_path=str(project_root / "assets" / "logo.jpg"),
+            logo_path=None,  # Use auto-detection
             author_name="Jyoti Ranjan",
             linkedin_url="https://www.linkedin.com/in/jyoti-ranjan-5083595/",
             project_name="LLM Studio"

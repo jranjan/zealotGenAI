@@ -1,15 +1,15 @@
 """
-Scanner - Concrete implementation for source data inspection
+Reader - Concrete implementation for source data reading
 """
 
 import json
 import os
 from pathlib import Path
 from typing import Dict, Any
-from .base import Scanner
+from .base import Reader
 
 
-class BasicScanner(Scanner):
+class BasicReader(Reader):
     """Handles source data inspection and validation"""
     
     def __init__(self):

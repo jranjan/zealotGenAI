@@ -16,9 +16,8 @@ import plotly.express as px
 
 # Add the parent directory to the path to import AssetAnalyser
 sys.path.append(str(Path(__file__).parent.parent))
-from analyser import AssetAnalyser
+from analyser import AssetAnalyser, AnalyserFactory
 from configreader import SchemaGuide
-from common import AnalyserFactory
 
 # Page configuration
 st.set_page_config(

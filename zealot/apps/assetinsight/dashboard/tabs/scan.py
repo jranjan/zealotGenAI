@@ -39,37 +39,39 @@ class ScanTab(BaseTab):
     
     def _render_content(self):
         """Render scan coverage interface"""
+        self._render_header()
+        
+        if not self._check_database_ready():
+            return
+        
+        scan_data = self._get_scan_data()
+        if not scan_data:
+            st.error("❌ No scan data available. Please ensure your database is loaded with asset data.")
+            return
+        
+        self._render_scan_sections(scan_data)
+    
+    def _render_header(self):
+        """Render scan tab header."""
         st.markdown("""
         <div style='background-color: #1f77b4; color: white; padding: 10px 15px; border-radius: 5px; margin-bottom: 20px; text-align: left; font-weight: bold;'>
             
         </div>
         """, unsafe_allow_html=True)
-        
-        # Check if database is available
+    
+    def _check_database_ready(self):
+        """Check if database is ready."""
         if not st.session_state.get('database_ready', False):
             st.warning("⚠️ Database not ready. Please complete the Inventory workflow first.")
-            return
-        
-        # Get scan data
-        scan_data = self._get_scan_data()
-        
-        if not scan_data:
-            st.error("❌ No scan data available. Please ensure your database is loaded with asset data.")
-            return
-        
-        # Display scan metrics
+            return False
+        return True
+    
+    def _render_scan_sections(self, scan_data):
+        """Render all scan-related sections."""
         self._display_scan_metrics(scan_data)
-        
-        # Display scan coverage chart
         self._display_coverage_chart(scan_data)
-        
-        # Display scan history
         self._display_scan_history(scan_data)
-        
-        # Display missing assets
         self._display_missing_assets(scan_data)
-        
-        # Display scan recommendations
         self._display_scan_recommendations(scan_data)
     
     def _get_scan_data(self) -> Optional[Dict[str, Any]]:
@@ -254,7 +256,7 @@ class ScanTab(BaseTab):
             
             # Display recent scan summary
             st.markdown("#### Recent Scan Summary")
-            st.dataframe(scan_df.tail(10), use_container_width=True)
+            st.dataframe(scan_df.tail(10), width='stretch')
         else:
             st.info("No recent scan data available.")
     
@@ -269,11 +271,11 @@ class ScanTab(BaseTab):
             # Summary by team
             team_summary = missing_df.groupby('team').size().reset_index(name='missing_count')
             st.markdown("#### Missing Scans by Team")
-            st.dataframe(team_summary, use_container_width=True)
+            st.dataframe(team_summary, width='stretch')
             
             # Detailed list
             st.markdown("#### Detailed Missing Assets List")
-            st.dataframe(missing_df, use_container_width=True)
+            st.dataframe(missing_df, width='stretch')
             
             # Download option
             csv = missing_df.to_csv(index=False)
