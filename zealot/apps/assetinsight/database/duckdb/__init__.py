@@ -2,8 +2,8 @@
 Reader package for data reading implementations
 """
 
-from .factory import ReaderFactory
+from .factory import DatabaseFactory
 
 __all__ = [
-    'ReaderFactory'
+    'DatabaseFactory'
 ]

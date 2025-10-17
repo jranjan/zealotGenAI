@@ -26,9 +26,8 @@ current_dir = Path(__file__).parent
 sys.path.insert(0, str(current_dir))
 
 # Import dashboard components
-from dashboard.tabs import SourceTab, NormaliserTab
-from dashboard.tabs.load import LoadTab
-from dashboard.tabs.analysis.ownership import OwnershipAnalyserTab
+from dashboard.tabs.inventory import InventoryTab
+from dashboard.tabs.scan import ScanTab
 
 
 # Page configuration
@@ -92,23 +91,15 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Main content area with tabs
-tab1, tab2, tab3, tab4 = st.tabs(["Source", "Normalise", "Load", "Ownership"])
+tab1, tab2 = st.tabs(["🏢 Inventory", "🔍 Scan"])
 
 with tab1:
-    source_tab = SourceTab()
-    source_tab.render()
+    inventory_tab = InventoryTab()
+    inventory_tab.render()
 
 with tab2:
-    normaliser_tab = NormaliserTab()
-    normaliser_tab.render()
-
-with tab3:
-    load_tab = LoadTab()
-    load_tab.render()
-
-with tab4:
-    ownership_tab = OwnershipAnalyserTab()
-    ownership_tab.render()
+    scan_tab = ScanTab()
+    scan_tab.render()
 
 # Footer with copyright and branding (using StreamlitUI)
 import sys

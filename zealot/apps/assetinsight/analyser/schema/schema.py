@@ -3,7 +3,7 @@ Schema Analyser - Database schema analysis and metadata exploration.
 """
 
 from typing import Any, Dict, List, Optional
-from .base import Analyser
+from ..base import Analyser
 
 
 class SchemaAnalyser(Analyser):
@@ -84,9 +84,9 @@ class SchemaAnalyser(Analyser):
             List of table names
         """
         try:
-            # Use singleton pattern - get existing instance without closing
-            from database.reader.duckdb import DuckDBReader
-            reader = DuckDBReader.get_instance(source_directory)
+            # Use factory to create reader
+            from database.duckdb import DatabaseFactory
+            reader = DatabaseFactory.create_basic_reader(source_directory)
             tables_result = reader.execute_query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'")
             tables = [row['table_name'] for row in tables_result] if tables_result else []
             
@@ -108,9 +108,9 @@ class SchemaAnalyser(Analyser):
             List of column metadata dictionaries
         """
         try:
-            # Use singleton pattern - get existing instance without closing
-            from database.reader.duckdb import DuckDBReader
-            reader = DuckDBReader.get_instance(source_directory)
+            # Use factory to create reader
+            from database.duckdb import DatabaseFactory
+            reader = DatabaseFactory.create_basic_reader(source_directory)
             
             metadata_query = f"""
                 SELECT 
@@ -146,9 +146,9 @@ class SchemaAnalyser(Analyser):
             List of sample records
         """
         try:
-            # Use singleton pattern - get existing instance without closing
-            from database.reader.duckdb import DuckDBReader
-            reader = DuckDBReader.get_instance(source_directory)
+            # Use factory to create reader
+            from database.duckdb import DatabaseFactory
+            reader = DatabaseFactory.create_basic_reader(source_directory)
             
             sample_query = f"SELECT * FROM \"{table_name}\" LIMIT {limit}"
             sample_data = reader.execute_query(sample_query)

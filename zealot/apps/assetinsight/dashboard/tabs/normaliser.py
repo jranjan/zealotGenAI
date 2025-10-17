@@ -15,7 +15,7 @@ from collections import defaultdict
 current_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(current_dir))
 
-from transformer import TransformerFactory, TransformerType
+from transformer import TransformerFactory
 from common.system_data import SystemDirectory
 from utils.dataframe_utils import safe_dataframe
 from .base import BaseTab
@@ -29,11 +29,9 @@ class NormaliserTab(BaseTab):
             tab_name="Normalise",
             description=""
         )
-        # Use factory to create SupersonicFlattener for maximum performance (multiprocessing)
-        self.transformer = TransformerFactory.create_transformer(
-            TransformerType.SUPERSONIC_FLATTENER,
-            max_workers=min(8, multiprocessing.cpu_count()),  # Optimized for multiprocessing
-            chunk_size=20  # Smaller chunks for better memory management
+        # Use factory to create SonicFlattener for maximum performance (multiprocessing)
+        self.transformer = TransformerFactory.create_sonic_flattener(
+            max_workers=min(8, multiprocessing.cpu_count())  # Optimized for multiprocessing
         )
         # Initialize target folder (auto-generate by default)
         self.target_folder = None

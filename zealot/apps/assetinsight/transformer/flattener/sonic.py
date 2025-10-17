@@ -13,14 +13,14 @@ from multiprocessing import Pool, cpu_count
 import time
 import warnings
 import logging
-from .flattener import Flattener
+from .basic import BasicFlattener
 
 # Suppress Streamlit warnings in multiprocessing workers
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 
-class SupersonicFlattener(Flattener):
+class SonicFlattener(BasicFlattener):
     """
     High-performance multiprocessing flattener that uses FlattenerHelper for all operations.
     
@@ -145,7 +145,7 @@ def _process_file_chunk(file_paths: List[str], target_dir: str) -> Dict[str, Any
     import logging
     import json
     from pathlib import Path
-    from .utils.flattener_helper import FlattenerHelper
+    from ..utils.flattener_helper import FlattenerHelper
     
     warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
     logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)

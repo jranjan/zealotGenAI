@@ -2,8 +2,8 @@
 Database package for efficient data access and processing
 """
 
-from .reader import ReaderFactory
+from .duckdb import DatabaseFactory
 
 __all__ = [
-    'ReaderFactory'
+    'DatabaseFactory'
 ]

@@ -8,11 +8,10 @@ from pathlib import Path
 from typing import Dict, Any, List
 import tempfile
 import os
-from .base import Reader
-from configreader import SchemaGuide
+from ..base import Reader
 
 
-class DuckDBReader(Reader):
+class BasicMemoryDuckdb(Reader):
     """Singleton DuckDB reader"""
     
     _instances = {}  # Class variable to store instances by folder_path
@@ -27,7 +26,7 @@ class DuckDBReader(Reader):
             return cls._instances[folder_path_str]
         
         # Create new instance
-        instance = super(DuckDBReader, cls).__new__(cls)
+        instance = super(BasicMemoryDuckdb, cls).__new__(cls)
         cls._instances[folder_path_str] = instance
         return instance
     
@@ -362,7 +361,7 @@ class DuckDBReader(Reader):
                 total_assets = result[0] if result else 0
                 print(f"📊 Found {total_assets} total assets")
                 
-                # Get file count - DuckDBReader doesn't track source_file, so estimate from folder
+                # Get file count - BasicMemoryDuckdb doesn't track source_file, so estimate from folder
                 json_files = list(self.folder_path.glob("*.json"))
                 total_files = len(json_files)
                 print(f"📁 Found {total_files} JSON files in folder")

@@ -13,7 +13,7 @@ import sys
 current_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(current_dir))
 
-from scanner import ScannerFactory, ScannerType
+from scanner import ScannerFactory
 from common.system_data import SystemDirectory
 from common.asset_class import AssetClass
 from utils.dataframe_utils import safe_dataframe
@@ -28,8 +28,8 @@ class SourceTab(BaseTab):
             tab_name="Source",
             description=""
         )
-        # Use factory to create SupersonicSourceScanner for maximum performance with large directories
-        self.source_scanner = ScannerFactory.create_scanner(ScannerType.SUPERSONIC_SOURCE_SCANNER)
+        # Use factory to create SonicScanner for maximum performance with large directories
+        self.source_scanner = ScannerFactory.create_sonic_scanner()
     
     def _get_friendly_asset_class_name(self, asset_class_name: str) -> str:
         """

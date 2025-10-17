@@ -8,11 +8,10 @@ from ..base import BaseTab
 import sys
 from pathlib import Path
 import plotly.express as px
-import multiprocessing
 import plotly.graph_objects as go
 import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent.parent.parent))
-from analyser.owner import OwnerAnalyser
+from analyser.asset.owner import OwnerAnalyser
 from utils.dataframe_utils import safe_dataframe, clean_numeric_column, clean_string_column
 
 
@@ -410,13 +409,13 @@ class OwnershipAnalyserTab(BaseTab):
         try:
             # Check if reader exists and is connected
             if not hasattr(self.analyser, 'reader') or self.analyser.reader is None:
-                # The database is already loaded by DuckDBSonicReader in Load tab
-                # We need to use DuckDBReader to query the existing database files
-                from database.reader.duckdb import DuckDBReader
+                # The database is already loaded by SonicMemoryDuckdb in Load tab
+                # We need to use MemoryDuckdb to query the existing database files
+                from database.duckdb.memory.basic import BasicMemoryDuckdb
                 
-                # Create a new DuckDBReader instance to query the existing database
+                # Create a new BasicMemoryDuckdb instance to query the existing database
                 # This will connect to the database files created by the Load tab
-                self.analyser.reader = DuckDBReader.get_instance(target_folder)
+                self.analyser.reader = BasicMemoryDuckdb.get_instance(target_folder)
                 
                 # Check if database is ready
                 readiness_result = self.analyser.reader.check_data_readiness()
@@ -427,9 +426,9 @@ class OwnershipAnalyserTab(BaseTab):
         except Exception as e:
             # If connection fails, try to create a new one
             try:
-                from database.reader.duckdb import DuckDBReader
+                from database.duckdb.memory.basic import BasicMemoryDuckdb
                 
-                self.analyser.reader = DuckDBReader.get_instance(target_folder)
+                self.analyser.reader = BasicMemoryDuckdb.get_instance(target_folder)
                 
                 # Check if database is ready
                 readiness_result = self.analyser.reader.check_data_readiness()
