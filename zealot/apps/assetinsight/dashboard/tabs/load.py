@@ -41,8 +41,8 @@ class LoadTab(BaseTab):
                 key="load_data_path"
             )
         
-        # Database Status Section - only show if database is already loaded
-        if target_folder and st.session_state.get('database_ready', False):
+        # Database Status Section - show if we have a target folder
+        if target_folder:
             self._display_database_status(target_folder)
         
         # Load Database Section
@@ -84,17 +84,17 @@ class LoadTab(BaseTab):
         try:
             st.markdown("**Database Status Check**")
             
+            # Get the database instance from session state
+            db_instance = st.session_state.get('db_instance')
+            if not db_instance:
+                st.info("ℹ️ Database not created yet. Click 'Load Database' to create and load data.")
+                return
+            
             with st.spinner("Checking database status..."):
-                # Use factory to create DuckDBSonicReader
+                # Use the pre-initialized database instance
                 try:
-                    from database import ReaderFactory
-                    
-                    readiness_result = ReaderFactory.create_sonic_reader(
-                        target_folder,
-                        max_workers=multiprocessing.cpu_count(),
-                        batch_size=2000,
-                        memory_limit_gb=4.0
-                    )
+                    # Get database health status
+                    readiness_result = db_instance.check_data_readiness()
                     
                     # Display status information as metrics
                     col1, col2, col3, col4, col5 = st.columns(5)
@@ -141,59 +141,41 @@ class LoadTab(BaseTab):
             st.error(f"❌ Failed to check database status: {str(e)}")
     
     def _load_database(self, target_folder: str) -> Dict[str, Any]:
-        """Load database from normalized data"""
+        """Load database from normalized data - create instance if needed"""
         try:
-            with st.spinner("🗄️ Setting up database for high performance analytics..."):
-                # Use factory to create DuckDBSonicReader
-                from database import ReaderFactory
+            with st.spinner("🗄️ Loading data into database for high performance analytics..."):
+                # Get or create database instance
+                db_instance = st.session_state.get('db_instance')
                 
-                readiness_result = ReaderFactory.create_sonic_reader(
-                    target_folder,
-                    max_workers=multiprocessing.cpu_count(),
-                    batch_size=2000,
-                    memory_limit_gb=4.0
-                )
-                
-                if readiness_result.get('ready', False):
-                    # Performance stats are already included in the factory result
-                    performance_stats = {
-                        'max_workers': readiness_result.get('max_workers', 0),
-                        'file_chunks': readiness_result.get('file_chunks', 0),
-                        'files_per_chunk': readiness_result.get('files_per_chunk', 0),
-                        'total_files': readiness_result.get('total_files', 0)
-                    }
+                if db_instance is None:
+                    # Create database instance for the first time
+                    st.info("🏗️ Creating database instance...")
+                    from database.reader.factory import ReaderFactory, ReaderType
                     
-                    # Database loaded successfully
-                    result = {
-                        'success': True,
-                        'message': 'Database loaded successfully with DuckDBSonicReader!',
-                        'stats': {
-                            'total_assets': readiness_result.get('object_count', 0),
-                            'total_files': readiness_result.get('json_files_found', 0),
-                            'health_status': readiness_result.get('health_status', 'UNKNOWN'),
-                            'table_count': readiness_result.get('table_count', 0),
-                            'max_workers': performance_stats.get('max_workers', 0),
-                            'file_chunks': performance_stats.get('file_chunks', 0),
-                            'files_per_chunk': performance_stats.get('files_per_chunk', 0),
-                            'processing_time': performance_stats.get('processing_time', 0)
-                        },
-                        'database_ready': True
-                    }
+                    # Use temp folder for in-memory database
+                    import tempfile
+                    temp_folder = Path(tempfile.gettempdir()) / "assetinsight_db"
+                    temp_folder.mkdir(exist_ok=True)
                     
-                    # Store in session state for other tabs
+                    db_instance = ReaderFactory.create_reader(folder_path=str(temp_folder), reader_type=ReaderType.MEMORY_SONIC)
+                    
+                    # Create tables (schema only, no data loaded yet)
+                    table_result = db_instance.create_tables()
+                    if not table_result['success']:
+                        st.warning(f"Table creation warning: {table_result['message']}")
+                    
+                    # Store in session state
+                    st.session_state['db_instance'] = db_instance
                     st.session_state['database_ready'] = True
-                    st.session_state['database_stats'] = result['stats']
-                    st.session_state['database_path'] = target_folder
-                    
+                    st.success("✅ Database instance created successfully!")
+                
+                # Use the Reader's comprehensive setup method to load data
+                result = db_instance.setup_database_complete(target_folder)
+                
+                # Display appropriate message
+                if result['success']:
                     st.success("✅ Database loaded successfully!")
-                    
                 else:
-                    result = {
-                        'success': False,
-                        'message': f"Database loading failed: {readiness_result.get('error', 'Unknown error')}",
-                        'stats': {},
-                        'database_ready': False
-                    }
                     st.error(f"❌ {result['message']}")
                 
                 return result
@@ -218,39 +200,41 @@ class LoadTab(BaseTab):
             st.error(result['message'])
     
     def _display_database_health_metrics(self):
-        """Display database health stats using reader class methods"""
+        """Display database health stats using pre-initialized database instance"""
         st.markdown("---")
         st.markdown("### 📊 Database Health Metrics")
         
-        # Get database path from session state
-        target_folder = st.session_state.get('database_path')
-        if not target_folder:
-            st.warning("⚠️ No database path available. Please load the database first.")
+        # Get the pre-initialized database instance from session state
+        db_instance = st.session_state.get('db_instance')
+        if not db_instance:
+            st.warning("⚠️ Database not initialized. Please refresh the page.")
             return
         
         try:
-            # Use factory to create DuckDBSonicReader
-            from database import ReaderFactory
+            # Use the pre-initialized database instance
+            # Get total objects count
+            total_assets = db_instance.get_total_objects()
             
-            # Create sonic reader using factory
-            result = ReaderFactory.create_sonic_reader(
-                target_folder,
-                max_workers=multiprocessing.cpu_count(),
-                batch_size=2000,
-                memory_limit_gb=4.0
-            )
+            # Get database health status
+            health_result = db_instance.check_data_readiness()
             
-            # Extract stats from factory result
+            # Extract stats from database instance
+            # Database is considered connected if we can query it, even if empty
+            is_connected = health_result.get('database_connected', False) or total_assets >= 0
+            
             stats = {
-                'status': 'connected' if result.get('ready', False) else 'error',
-                'total_files': result.get('total_files', 0),
-                'total_assets': result.get('object_count', 0),
-                'asset_classes': result.get('asset_classes', 0),
-                'health_status': result.get('health_status', 'Unknown')
+                'status': 'connected' if is_connected else 'error',
+                'total_files': health_result.get('total_files', 0),
+                'total_assets': total_assets,
+                'asset_classes': health_result.get('asset_classes', 0),
+                'health_status': 'Ready' if is_connected else health_result.get('health_status', 'Unknown')
             }
             
-            if stats['status'] == 'connected' and stats.get('total_assets', 0) > 0:
-                st.success("✅ Database is ready and healthy")
+            if stats['status'] == 'connected':
+                if stats.get('total_assets', 0) > 0:
+                    st.success("✅ Database is ready and healthy")
+                else:
+                    st.info("ℹ️ Database is ready but empty. Load data to see metrics.")
                 
                 # Display all metrics in a single row
                 col1, col2, col3, col4 = st.columns(4)
@@ -270,9 +254,11 @@ class LoadTab(BaseTab):
                     )
                 
                 with col3:
+                    asset_classes = stats.get('asset_classes', 0)
+                    asset_classes_text = f"{asset_classes}" if asset_classes > 0 else "0 (Empty)"
                     st.metric(
                         "🏷️ Asset Classes", 
-                        f"{stats.get('asset_classes', 1)} (Server)",
+                        asset_classes_text,
                         help="Number of asset classes in the database"
                     )
                 
@@ -298,25 +284,16 @@ class LoadTab(BaseTab):
         st.markdown("---")
         st.markdown("### 🔍 Table Metadata Explorer")
         
-        # Get the database path from session state
-        target_folder = st.session_state.get('database_path')
-        if not target_folder:
-            st.warning("⚠️ No database path available. Please load the database first.")
-            return
-        
-        # Check if database is ready
-        if not st.session_state.get('database_ready', False):
-            st.warning("⚠️ Database not ready. Please click 'Load Database' first.")
+        # Get the pre-initialized database instance from session state
+        db_instance = st.session_state.get('db_instance')
+        if not db_instance:
+            st.warning("⚠️ Database not initialized. Please refresh the page.")
             return
         
         try:
-            # Use SchemaAnalyser for metadata queries
-            from analyser import SchemaAnalyser
-            
-            schema_analyser = SchemaAnalyser()
-            
-            # Get list of tables using SchemaAnalyser
-            tables = schema_analyser.get_table_list(target_folder)
+            # Get list of tables directly from the database instance
+            tables_result = db_instance.execute_query("SHOW TABLES")
+            tables = [row['name'] for row in tables_result] if tables_result else []
             
             if not tables:
                 st.warning("⚠️ No tables found in the database")
@@ -334,9 +311,23 @@ class LoadTab(BaseTab):
             )
             
             if selected_table:
-                # Get table metadata using SchemaAnalyser
+                # Get table metadata directly from the database instance
                 try:
-                    metadata_result = schema_analyser.get_table_metadata(target_folder, selected_table)
+                    metadata_query = f"DESCRIBE \"{selected_table}\""
+                    metadata_result = db_instance.execute_query(metadata_query)
+                    
+                    # Transform DuckDB result to match expected format
+                    if metadata_result:
+                        transformed_result = []
+                        for i, row in enumerate(metadata_result):
+                            transformed_result.append({
+                                'column_name': row.get('column_name', ''),
+                                'data_type': row.get('column_type', ''),
+                                'is_nullable': row.get('null', 'YES') == 'YES',
+                                'column_default': row.get('default', ''),
+                                'ordinal_position': i + 1
+                            })
+                        metadata_result = transformed_result
                     
                     if metadata_result:
                         st.success(f"📋 Found {len(metadata_result)} columns in table '{selected_table}'")
@@ -496,38 +487,33 @@ class LoadTab(BaseTab):
             st.warning("⚠️ Assets has no ID, cannot query database")
             return
         
+        # Get the pre-initialized database instance from session state
+        db_instance = st.session_state.get('db_instance')
+        if not db_instance:
+            st.warning("⚠️ Database not initialized. Please refresh the page.")
+            return
+        
         try:
-            # Query database for this specific asset
-            from database import ReaderFactory
+            # Query for the specific asset using the pre-initialized database instance
+            db_query = f"SELECT * FROM assets WHERE id = '{asset_id}'"
+            db_results = db_instance.execute_query(db_query)
             
-            result = ReaderFactory.create_sonic_reader(target_folder)
-            if result.get('ready', False):
-                # Get the reader instance to query the database
-                from database.reader.duckdb_sonic import DuckDBSonicReader
-                reader = DuckDBSonicReader(target_folder)
+            if db_results:
+                db_asset = db_results[0]
                 
-                # Query for the specific asset
-                db_query = f"SELECT * FROM assets WHERE id = '{asset_id}'"
-                db_results = reader.execute_query(db_query)
+                # Create two columns for side-by-side display
+                col1, col2 = st.columns(2)
                 
-                if db_results:
-                    db_asset = db_results[0]
-                    
-                    # Create two columns for side-by-side display
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        st.markdown("#### 📄 Flattened File Content")
-                        st.json(asset)
-                    
-                    with col2:
-                        st.markdown("#### 🗄️ Database Content")
-                        st.json(db_asset)
-                    
-                else:
-                    st.warning(f"⚠️ Asset with ID '{asset_id}' not found in database")
+                with col1:
+                    st.markdown("#### 📄 Flattened File Content")
+                    st.json(asset)
+                
+                with col2:
+                    st.markdown("#### 🗄️ Database Content")
+                    st.json(db_asset)
+                
             else:
-                st.error("❌ Database not ready for querying")
+                st.warning(f"⚠️ Asset with ID '{asset_id}' not found in database")
         
         except Exception as e:
             st.error(f"❌ Error querying database: {str(e)}")

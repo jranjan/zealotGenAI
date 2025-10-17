@@ -8,7 +8,6 @@ from ..base import BaseTab
 import sys
 from pathlib import Path
 import plotly.express as px
-import multiprocessing
 import plotly.graph_objects as go
 import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent.parent.parent))
@@ -200,8 +199,9 @@ class OwnershipAnalyserTab(BaseTab):
                 if normalised_data.get('database_ready', False):
                     st.info("🗄️ Using pre-created database from normalisation phase...")
                 
-                # Create reader with the target folder
-                self.analyser.create_reader(target_folder)
+                # Use the singleton database instance through factory
+                from database.reader.factory import ReaderFactory, ReaderType
+                self.analyser.reader = ReaderFactory.create_reader(folder_path=target_folder, reader_type=ReaderType.MEMORY_SONIC)
                 
                 # Get ownership summary
                 summary = self.analyser.get_ownership_summary()
@@ -408,37 +408,13 @@ class OwnershipAnalyserTab(BaseTab):
     def _ensure_reader_connection(self, target_folder: str):
         """Ensure reader connection is established and valid"""
         try:
-            # Check if reader exists and is connected
-            if not hasattr(self.analyser, 'reader') or self.analyser.reader is None:
-                # The database is already loaded by DuckDBSonicReader in Load tab
-                # We need to use DuckDBReader to query the existing database files
-                from database.reader.duckdb import DuckDBReader
-                
-                # Create a new DuckDBReader instance to query the existing database
-                # This will connect to the database files created by the Load tab
-                self.analyser.reader = DuckDBReader.get_instance(target_folder)
-                
-                # Check if database is ready
-                readiness_result = self.analyser.reader.check_data_readiness()
-                if not readiness_result.get('ready', False):
-                    raise Exception(f"Database not ready: {readiness_result.get('error', 'Unknown error')}")
-                    
+            # Use the singleton database instance through factory
+            from database.reader.factory import ReaderFactory, ReaderType
+            self.analyser.reader = ReaderFactory.create_reader(folder_path=target_folder, reader_type=ReaderType.MEMORY_SONIC)
             return True
+            
         except Exception as e:
-            # If connection fails, try to create a new one
-            try:
-                from database.reader.duckdb import DuckDBReader
-                
-                self.analyser.reader = DuckDBReader.get_instance(target_folder)
-                
-                # Check if database is ready
-                readiness_result = self.analyser.reader.check_data_readiness()
-                if not readiness_result.get('ready', False):
-                    raise Exception(f"Database not ready: {readiness_result.get('error', 'Unknown error')}")
-                    
-                return True
-            except Exception as e2:
-                raise Exception(f"Failed to establish database connection: {str(e2)}")
+            raise Exception(f"Failed to establish database connection: {str(e)}")
     
     def _close_reader_connection(self):
         """Close reader connection if it exists"""

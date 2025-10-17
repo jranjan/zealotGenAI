@@ -33,7 +33,9 @@ class SecurityAnalyser(AssetAnalyser):
             Analysis results dictionary
         """
         try:
-            self.create_reader(source_directory)
+            # Only create reader if one doesn't exist
+            if not hasattr(self, 'reader') or not self.reader:
+                self.create_reader(source_directory)
             summary = self.get_security_summary()
             return {
                 'success': True,

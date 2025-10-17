@@ -9,7 +9,6 @@ import multiprocessing
 from pathlib import Path
 import pandas as pd
 import sys
-from collections import defaultdict
 
 # Add the current directory to Python path
 current_dir = Path(__file__).parent.parent.parent

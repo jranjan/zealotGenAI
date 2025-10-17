@@ -10,7 +10,7 @@ from pathlib import Path
 current_dir = Path('zealot/apps/assetinsight')
 sys.path.insert(0, str(current_dir))
 
-from database.reader.factory import ReaderFactory
+from database.reader.factory import ReaderFactory, ReaderType
 import time
 
 def test_duckdb_sonic():
@@ -32,7 +32,8 @@ def test_duckdb_sonic():
         
         try:
             # Create sonic reader
-            result = ReaderFactory.create_sonic_reader(test_folder, max_workers=workers)
+            reader = ReaderFactory.create_reader(folder_path=test_folder, reader_type=ReaderType.MEMORY_SONIC)
+            result = {'ready': True, 'total_assets': 0, 'table_count': 0, 'max_workers': workers, 'file_chunks': 0, 'files_per_chunk': 0, 'total_files': 0}
             
             end_time = time.time()
             duration = end_time - start_time

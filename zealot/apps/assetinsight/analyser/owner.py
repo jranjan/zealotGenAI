@@ -20,6 +20,7 @@ class OwnerAnalyser(AssetAnalyser):
     def __init__(self):
         """Initialize the owner analyser."""
         super().__init__("owner")
+        # Reader will be set when needed using the singleton pattern
     
     def analyse(self, source_directory: str, result_directory: str) -> Dict[str, Any]:
         """
@@ -33,7 +34,9 @@ class OwnerAnalyser(AssetAnalyser):
             Analysis results dictionary
         """
         try:
-            self.create_reader(source_directory)
+            # Only create reader if one doesn't exist
+            if not hasattr(self, 'reader') or not self.reader:
+                self.create_reader(source_directory)
             summary = self.get_ownership_summary()
             return {
                 'success': True,

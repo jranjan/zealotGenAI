@@ -3,6 +3,7 @@ Schema Analyser - Database schema analysis and metadata exploration.
 """
 
 from typing import Any, Dict, List, Optional
+import streamlit as st
 from .base import Analyser
 
 
@@ -73,72 +74,82 @@ class SchemaAnalyser(Analyser):
             self.close_reader()
     
     
-    def get_table_list(self, source_directory: str) -> List[str]:
+    def get_table_list(self, source_directory: str = None) -> List[str]:
         """
-        Get list of tables in the database using singleton pattern.
+        Get list of tables in the database using pre-initialized instance.
         
         Args:
-            source_directory: Path to source directory containing database
+            source_directory: Path to source directory (optional, uses session state if not provided)
             
         Returns:
             List of table names
         """
         try:
-            # Use singleton pattern - get existing instance without closing
-            from database.reader.duckdb import DuckDBReader
-            reader = DuckDBReader.get_instance(source_directory)
-            tables_result = reader.execute_query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'")
-            tables = [row['table_name'] for row in tables_result] if tables_result else []
+            # Get the pre-initialized database instance from session state
+            db_instance = st.session_state.get('db_instance')
+            if not db_instance:
+                return []
+            
+            # Use DuckDB-specific query for table listing
+            tables_result = db_instance.execute_query("SHOW TABLES")
+            tables = [row['name'] for row in tables_result] if tables_result else []
             
             return tables
             
         except Exception as e:
-            print(f"Error getting table list: {e}")
             return []
     
-    def get_table_metadata(self, source_directory: str, table_name: str) -> List[Dict[str, Any]]:
+    def get_table_metadata(self, source_directory: str = None, table_name: str = None) -> List[Dict[str, Any]]:
         """
-        Get metadata for a specific table using singleton pattern.
+        Get metadata for a specific table using pre-initialized instance.
         
         Args:
-            source_directory: Path to source directory containing database
+            source_directory: Path to source directory (optional, uses session state if not provided)
             table_name: Name of the table to get metadata for
             
         Returns:
             List of column metadata dictionaries
         """
         try:
-            # Use singleton pattern - get existing instance without closing
-            from database.reader.duckdb import DuckDBReader
-            reader = DuckDBReader.get_instance(source_directory)
+            # Get the pre-initialized database instance from session state
+            db_instance = st.session_state.get('db_instance')
+            if not db_instance:
+                print("No database instance found in session state")
+                return []
             
-            metadata_query = f"""
-                SELECT 
-                    column_name,
-                    data_type,
-                    is_nullable,
-                    column_default,
-                    ordinal_position
-                FROM information_schema.columns 
-                WHERE table_name = '{table_name}' 
-                AND table_schema = 'main'
-                ORDER BY ordinal_position
-            """
+            if not table_name:
+                print("No table name provided")
+                return []
             
-            metadata_result = reader.execute_query(metadata_query)
+            # Use DuckDB-specific query for column metadata
+            metadata_query = f"DESCRIBE \"{table_name}\""
+            metadata_result = db_instance.execute_query(metadata_query)
             
-            return metadata_result if metadata_result else []
+            # Transform DuckDB result to match expected format
+            if metadata_result:
+                transformed_result = []
+                for i, row in enumerate(metadata_result):
+                    transformed_result.append({
+                        'column_name': row.get('column_name', ''),
+                        'data_type': row.get('column_type', ''),
+                        'is_nullable': row.get('null', 'YES') == 'YES',
+                        'column_default': row.get('default', ''),
+                        'ordinal_position': i + 1
+                    })
+                return transformed_result
+            
+            return []
             
         except Exception as e:
             print(f"Error getting table metadata for {table_name}: {e}")
             return []
     
-    def get_sample_data(self, source_directory: str, table_name: str, limit: int = 1) -> List[Dict[str, Any]]:
+    def get_sample_data(self, source_directory: str = None, table_name: str = None, limit: int = 1) -> List[Dict[str, Any]]:
         """
-        Get sample data from a specific table.
+        Get sample data from a specific table using pre-initialized instance.
         
         Args:
-            source_directory: Path to source directory containing database
+            source_directory: Path to source directory (optional, uses session state if not provided)
             table_name: Name of the table to get sample data from
             limit: Number of sample records to return (default: 1)
             
@@ -146,12 +157,18 @@ class SchemaAnalyser(Analyser):
             List of sample records
         """
         try:
-            # Use singleton pattern - get existing instance without closing
-            from database.reader.duckdb import DuckDBReader
-            reader = DuckDBReader.get_instance(source_directory)
+            # Get the pre-initialized database instance from session state
+            db_instance = st.session_state.get('db_instance')
+            if not db_instance:
+                print("No database instance found in session state")
+                return []
+            
+            if not table_name:
+                print("No table name provided")
+                return []
             
             sample_query = f"SELECT * FROM \"{table_name}\" LIMIT {limit}"
-            sample_data = reader.execute_query(sample_query)
+            sample_data = db_instance.execute_query(sample_query)
             
             return sample_data if sample_data else []
             

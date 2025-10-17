@@ -34,6 +34,16 @@ class Reader(ABC):
     def _create_assets_table(self, conn):
         """Create assets table using SchemaGuide - common implementation"""
         try:
+            # Check if table already exists first using a more reliable method
+            try:
+                # Try to query the table - if it exists, this will succeed
+                conn.execute("SELECT 1 FROM assets LIMIT 1").fetchone()
+                # If we get here, table exists, no need to create it
+                return
+            except:
+                # If query fails, table doesn't exist, proceed with creation
+                pass
+            
             # Get schema from assets.yaml
             table_schema = self._get_schema()
             
@@ -123,10 +133,33 @@ class Reader(ABC):
             print(f"⚠️ Error getting insert SQL: {e}")
             raise e
     
-    @abstractmethod
+    def _get_database_connection(self):
+        """Get a new database connection for queries"""
+        # This should be implemented by subclasses
+        raise NotImplementedError("Subclasses must implement _get_database_connection")
+    
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
-        """Execute SQL query and return results"""
-        pass
+        """Execute SQL query and return results - common implementation"""
+        conn = self._get_database_connection()
+        try:
+            result = conn.execute(sql_query).fetchall()
+            columns = [desc[0] for desc in conn.description]
+            return [dict(zip(columns, row)) for row in result]
+        finally:
+            # Only close connection if it's not the main in-memory connection
+            if hasattr(self, 'db_path') and self.db_path != ":memory:":
+                conn.close()
+    
+    def get_total_objects(self) -> int:
+        """Get total number of assets in the database - common implementation"""
+        conn = self._get_database_connection()
+        try:
+            result = conn.execute("SELECT COUNT(*) as count FROM assets").fetchone()
+            return result[0] if result else 0
+        finally:
+            # Only close connection if it's not the main in-memory connection
+            if hasattr(self, 'db_path') and self.db_path != ":memory:":
+                conn.close()
     
     @abstractmethod
     def close(self):
@@ -142,3 +175,154 @@ class Reader(ABC):
             Dictionary containing readiness status, health info, and object count
         """
         pass
+    
+    @abstractmethod
+    def load_data_from_folder(self, data_folder: Path) -> None:
+        """
+        Load data from a folder into the database
+        
+        Args:
+            data_folder: Path to folder containing data files
+        """
+        pass
+    
+    def create_tables(self) -> Dict[str, Any]:
+        """
+        Create database tables (schema only) - common implementation for all readers
+        
+        Returns:
+            Dictionary with success status and message
+        """
+        try:
+            if self.conn is None:
+                return {
+                    'success': False,
+                    'message': "Database connection not established",
+                    'database_ready': False
+                }
+            
+            # Create tables using schema from config
+            self._create_assets_table(self.conn)
+            
+            return {
+                'success': True,
+                'message': 'Database tables created successfully!',
+                'database_ready': True
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"Table creation failed: {str(e)}",
+                'database_ready': False
+            }
+    
+    def load_data_into_tables(self, target_folder: str = None) -> Dict[str, Any]:
+        """
+        Load data into existing tables - common implementation for all readers
+        
+        Args:
+            target_folder: Path to folder containing data files
+            
+        Returns:
+            Dictionary with success status, message, and stats
+        """
+        try:
+            data_folder = Path(target_folder) if target_folder else self.folder_path
+            if not data_folder.exists():
+                return {
+                    'success': False,
+                    'message': f"Target folder does not exist: {data_folder}",
+                    'stats': {},
+                    'database_ready': False
+                }
+            
+            # Load data from folder
+            self.load_data_from_folder(data_folder)
+            
+            # Get performance stats
+            performance_stats = self.get_performance_stats()
+            
+            # Return standardized result
+            result = {
+                'success': True,
+                'message': 'Data loaded successfully!',
+                'stats': {
+                    'total_assets': performance_stats.get('total_assets', 0),
+                    'total_files': performance_stats.get('total_files', 0),
+                    'health_status': performance_stats.get('health_status', 'UNKNOWN'),
+                    'table_count': performance_stats.get('table_count', 0),
+                    'max_workers': performance_stats.get('max_workers', 0),
+                    'file_chunks': performance_stats.get('file_chunks', 0),
+                    'files_per_chunk': performance_stats.get('files_per_chunk', 0),
+                    'processing_time': performance_stats.get('processing_time', 0)
+                },
+                'database_ready': True
+            }
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"Data loading failed: {str(e)}",
+                'stats': {},
+                'database_ready': False
+            }
+    
+    def update_session_state(self, target_folder: str = None) -> None:
+        """
+        Update Streamlit session state with database information
+        
+        Args:
+            target_folder: Optional target folder path to store in session state
+        """
+        try:
+            import streamlit as st
+            
+            # Get performance stats
+            performance_stats = self.get_performance_stats()
+            
+            # Update session state
+            st.session_state['database_ready'] = True
+            st.session_state['database_stats'] = {
+                'total_assets': performance_stats.get('total_assets', 0),
+                'total_files': performance_stats.get('total_files', 0),
+                'health_status': performance_stats.get('health_status', 'UNKNOWN'),
+                'table_count': performance_stats.get('table_count', 0),
+                'max_workers': performance_stats.get('max_workers', 0),
+                'file_chunks': performance_stats.get('file_chunks', 0),
+                'files_per_chunk': performance_stats.get('files_per_chunk', 0),
+                'processing_time': performance_stats.get('processing_time', 0)
+            }
+            
+            if target_folder:
+                st.session_state['database_path'] = target_folder
+            else:
+                st.session_state['database_path'] = str(self.folder_path)
+                
+        except ImportError:
+            # Streamlit not available, skip session state update
+            pass
+        except Exception as e:
+            # Log error but don't fail the operation
+            print(f"Warning: Failed to update session state: {e}")
+    
+    def setup_database_complete(self, target_folder: str = None) -> Dict[str, Any]:
+        """
+        Complete database setup with data loading and session state update
+        
+        Args:
+            target_folder: Optional target folder to load data from. If None, uses self.folder_path
+            
+        Returns:
+            Dictionary with success status, message, and performance stats
+        """
+        # Load data into existing tables
+        result = self.load_data_into_tables(target_folder)
+        
+        # If successful, update session state
+        if result['success']:
+            self.update_session_state(target_folder)
+        
+        return result

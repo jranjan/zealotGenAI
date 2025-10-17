@@ -14,7 +14,6 @@ import pandas as pd
 from datetime import datetime
 import plotly.express as px
 import plotly.graph_objects as go
-from collections import defaultdict
 
 # Add the parent directory to the path to import AssetAnalyser
 sys.path.append(str(Path(__file__).parent.parent))

@@ -2,8 +2,9 @@
 Database package for efficient data access and processing
 """
 
-from .reader import ReaderFactory
+from .reader import ReaderFactory, ReaderType
 
 __all__ = [
-    'ReaderFactory'
+    'ReaderFactory',
+    'ReaderType'
 ]

@@ -2,8 +2,9 @@
 Reader package for data reading implementations
 """
 
-from .factory import ReaderFactory
+from .factory import ReaderFactory, ReaderType
 
 __all__ = [
-    'ReaderFactory'
+    'ReaderFactory',
+    'ReaderType'
 ]

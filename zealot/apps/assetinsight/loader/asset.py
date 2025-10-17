@@ -9,7 +9,6 @@ by parentCloud with team and asset aggregations.
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
-from collections import defaultdict
 from zealot.utils.loader.json import JSONLoader
 
 

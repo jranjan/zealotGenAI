@@ -1,7 +1,7 @@
 """
-DuckDBSonicReader - High-performance multiprocessing DuckDB reader
+DuckDBSonicMemoryReader - High-performance multiprocessing DuckDB reader with in-memory database
 
-This module provides a multiprocessing-enabled version of DuckDBReader
+This module provides a multiprocessing-enabled version of DuckDBMemoryReader
 that can load multiple JSON files in parallel for maximum performance.
 """
 
@@ -13,44 +13,55 @@ from typing import Dict, List, Any, Optional, Tuple
 import duckdb
 from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
 import time
-import threading
-from queue import Queue
 import orjson  # Faster JSON parsing
 import psutil  # For memory monitoring
 import warnings
 import logging
 
+# Multiprocessing safety for different platforms
+if __name__ != '__main__':
+    # Ensure multiprocessing works correctly on all platforms
+    mp.set_start_method('spawn', force=True)
+
 # Suppress Streamlit warnings in multiprocessing workers
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
-from .duckdb import DuckDBReader
+from .duckdb import DuckDBMemoryReader
 from configreader import SchemaGuide
 
 
-class DuckDBSonicReader(DuckDBReader):
+class DuckDBSonicMemoryReader(DuckDBMemoryReader):
     """
     High-performance DuckDB reader with multiprocessing support.
     
-    Extends DuckDBReader to load multiple JSON files in parallel using
+    Extends DuckDBMemoryReader to load multiple JSON files in parallel using
     multiprocessing for maximum performance on large datasets.
     """
     
-    def __new__(cls, folder_path: str, max_workers: Optional[int] = None, 
+    _instance = None  # Class variable to store the singleton instance
+    _initialized = False  # Track if singleton has been initialized
+    
+    def __new__(cls, folder_path: str = None, max_workers: Optional[int] = None, 
                  batch_size: int = 1000, memory_limit_gb: float = 2.0):
         """
-        Create a new DuckDBSonicReader instance.
-        Override __new__ to handle additional parameters before parent initialization.
+        Create a new DuckDBSonicMemoryReader singleton instance.
         """
-        # Convert to string and normalize path
-        folder_path_str = str(Path(folder_path).resolve())
+        # Return existing singleton instance if it exists
+        if cls._instance is not None:
+            # Update folder_path if provided and different
+            if folder_path and folder_path != cls._instance.folder_path:
+                print(f"🔄 Updating singleton folder_path from {cls._instance.folder_path} to {folder_path}")
+                cls._instance.folder_path = folder_path
+            return cls._instance
         
-        # Create instance using parent's __new__ with folder_path
-        instance = super(DuckDBSonicReader, cls).__new__(cls, folder_path_str)
+        # Create new singleton instance
+        instance = super(DuckDBSonicMemoryReader, cls).__new__(cls, folder_path)
+        cls._instance = instance
         
         # Set Sonic-specific attributes immediately (before parent __init__ calls _setup_database)
-        # Use all available CPU cores for maximum performance
-        instance.max_workers = max_workers or mp.cpu_count()
+        # Use all available CPU cores for maximum performance, but cap at 4 to avoid issues
+        instance.max_workers = max_workers or min(mp.cpu_count(), 4)
         instance.batch_size = batch_size
         instance.memory_limit_bytes = memory_limit_gb * 1024 * 1024 * 1024
         instance._file_chunks = []
@@ -59,22 +70,34 @@ class DuckDBSonicReader(DuckDBReader):
         instance._total_files = 0
         instance._processed_files = 0
         
+        print(f"🏗️ Creating new DuckDBSonicMemoryReader singleton instance")
         return instance
     
-    def __init__(self, folder_path: str, max_workers: Optional[int] = None, 
+    def __init__(self, folder_path: str = None, max_workers: Optional[int] = None, 
                  batch_size: int = 1000, memory_limit_gb: float = 2.0):
         """
-        Initialize DuckDBSonicReader with multiprocessing support.
-        a
+        Initialize DuckDBSonicMemoryReader with multiprocessing support.
+        
         Args:
             folder_path: Path to folder containing JSON files
             max_workers: Maximum number of worker processes (default: CPU count)
             batch_size: Number of assets to process in each batch
             memory_limit_gb: Memory limit in GB before switching to streaming mode
         """
-        # Call parent __init__ to set up database connection
-        # Sonic-specific attributes are already set in __new__
-        super().__init__(folder_path)
+        # Only initialize once for singleton
+        if not self._initialized:
+            if folder_path is None:
+                folder_path = "."
+            # Call parent __init__ to set up database connection
+            # Sonic-specific attributes are already set in __new__
+            super().__init__(folder_path)
+            self._initialized = True
+    
+    @classmethod
+    def reset_singleton(cls):
+        """Reset the singleton instance (useful for testing)"""
+        cls._instance = None
+        cls._initialized = False
     
     def _load_json_files(self) -> None:
         """
@@ -84,9 +107,10 @@ class DuckDBSonicReader(DuckDBReader):
             raise ValueError(f"Folder does not exist: {self.folder_path}")
         
         # Reset debug counter for this loading session
-        DuckDBSonicReader._debug_count = 0
+        DuckDBSonicMemoryReader._debug_count = 0
         
         # Find all JSON files with size information
+        print(f"🔍 Scanning for JSON files in: {self.folder_path}")
         json_files = self._get_file_list_with_sizes()
         if not json_files:
             raise ValueError(f"No JSON files found in {self.folder_path}")
@@ -94,10 +118,14 @@ class DuckDBSonicReader(DuckDBReader):
         self._total_files = len(json_files)
         self._start_time = time.time()
         
+        print(f"📊 Found {self._total_files} JSON files to process")
+        
         # Check if we should use streaming mode based on memory
         if self._should_use_streaming_mode(json_files):
+            print(f"🌊 Using streaming mode for large dataset")
             self._load_files_streaming(json_files)
         else:
+            print(f"⚡ Using parallel processing mode")
             self._load_files_parallel(json_files)
     
     def _get_file_list_with_sizes(self) -> List[Tuple[Path, int]]:
@@ -120,11 +148,14 @@ class DuckDBSonicReader(DuckDBReader):
     def _load_files_parallel(self, files_with_sizes: List[Tuple[Path, int]]) -> None:
         """Load files using parallel processing with optimized chunking."""
         # Create balanced file chunks based on file sizes
+        print(f"📦 Creating file chunks for {len(files_with_sizes)} files...")
         self._file_chunks = self._create_balanced_chunks(files_with_sizes)
+        print(f"📦 Created {len(self._file_chunks)} chunks with {self.max_workers} workers")
         
         # Process files in parallel with progress tracking
         all_assets = []
         
+        print(f"🚀 Starting parallel processing with {self.max_workers} workers...")
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all chunks for processing
             future_to_chunk = {
@@ -133,23 +164,31 @@ class DuckDBSonicReader(DuckDBReader):
             }
             
             # Collect results as they complete with progress updates
-            for future in as_completed(future_to_chunk):
+            for future in as_completed(future_to_chunk, timeout=300):  # 5 minute timeout
                 try:
-                    chunk_assets, processed_count = future.result()
+                    chunk_assets, processed_count = future.result(timeout=60)  # 1 minute per chunk
                     all_assets.extend(chunk_assets)
                     self._processed_files += processed_count
                     self._update_progress()
                 except Exception as e:
                     chunk = future_to_chunk[future]
+                    print(f"❌ Error processing chunk: {e}")
                     pass  # Error processing chunk
+        
+        print(f"📊 File processing complete. Total assets collected: {len(all_assets)}")
         
         # Load all assets into DuckDB using multiprocessing
         if all_assets:
+            print(f"🗄️ Loading {len(all_assets)} assets into database...")
             # Choose the best method based on data size
-            if len(all_assets) > 10000:  # Use separate databases for large datasets
-                self._load_assets_into_duckdb_multiprocessing_separate_db(all_assets)
+            if len(all_assets) > 10000:  # Use in-memory multiprocessing for large datasets
+                print(f"🌊 Using in-memory multiprocessing method for large dataset ({len(all_assets)} assets)")
+                self._load_assets_into_duckdb_multiprocessing_memory(all_assets)
             else:  # Use shared memory approach for smaller datasets
+                print(f"⚡ Using parallel method for dataset ({len(all_assets)} assets)")
                 self._load_assets_into_duckdb_parallel(all_assets)
+        else:
+            print("⚠️ No assets to load into database")
     
     def _load_files_streaming(self, files_with_sizes: List[Tuple[Path, int]]) -> None:
         """Load files using streaming mode for memory efficiency."""
@@ -187,13 +226,17 @@ class DuckDBSonicReader(DuckDBReader):
         total_files = len(sorted_files)
         total_size = sum(size for _, size in sorted_files)
         
+        print(f"📊 Dataset analysis: {total_files} files, {total_size/(1024**2):.1f}MB total size")
+        
         # For large datasets, use more chunks than workers for better parallelism
         if total_files > 500:  # Large dataset
             # Use more chunks: min(workers * 4, files / 50, 32)
             optimal_chunks = min(self.max_workers * 4, max(total_files // 50, 8), 32)
+            print(f"🌊 Large dataset detected - using {optimal_chunks} chunks for better parallelism")
         else:
             # For smaller datasets, use workers as chunks
             optimal_chunks = self.max_workers
+            print(f"⚡ Small dataset - using {optimal_chunks} chunks (1 per worker)")
         
         pass  # Chunks created
         
@@ -255,7 +298,7 @@ class DuckDBSonicReader(DuckDBReader):
                 # Process each asset with optimized parsing
                 for asset in file_assets:
                     if isinstance(asset, dict):
-                        processed_asset = DuckDBSonicReader._process_single_asset_optimized(asset)
+                        processed_asset = DuckDBSonicMemoryReader._process_single_asset_optimized(asset)
                         if processed_asset:
                             assets.append(processed_asset)
                 
@@ -294,7 +337,7 @@ class DuckDBSonicReader(DuckDBReader):
             # Process each asset
             for asset in file_assets:
                 if isinstance(asset, dict):
-                    processed_asset = DuckDBSonicReader._process_single_asset_optimized(asset)
+                    processed_asset = DuckDBSonicMemoryReader._process_single_asset_optimized(asset)
                     if processed_asset:
                         assets.append(processed_asset)
                         
@@ -316,15 +359,15 @@ class DuckDBSonicReader(DuckDBReader):
         """
         try:
             # Debug: Print first few assets being processed
-            if hasattr(DuckDBSonicReader, '_debug_count'):
-                DuckDBSonicReader._debug_count += 1
+            if hasattr(DuckDBSonicMemoryReader, '_debug_count'):
+                DuckDBSonicMemoryReader._debug_count += 1
             else:
-                DuckDBSonicReader._debug_count = 1
+                DuckDBSonicMemoryReader._debug_count = 1
             
             # The asset should already be flattened from the flattened files
             # Use the flattened data directly for properties and tags reconstruction
-            properties_json = DuckDBSonicReader._reconstruct_nested_json_static(asset, 'properties_')
-            tags_json = DuckDBSonicReader._reconstruct_nested_json_static(asset, 'tags_')
+            properties_json = DuckDBSonicMemoryReader._reconstruct_nested_json_static(asset, 'properties_')
+            tags_json = DuckDBSonicMemoryReader._reconstruct_nested_json_static(asset, 'tags_')
             raw_data_json = orjson.dumps(asset).decode('utf-8')
             
             
@@ -374,7 +417,7 @@ class DuckDBSonicReader(DuckDBReader):
         Returns:
             Processed asset dictionary or None if invalid
         """
-        return DuckDBSonicReader._process_single_asset_optimized(asset)
+        return DuckDBSonicMemoryReader._process_single_asset_optimized(asset)
     
     def _load_assets_into_duckdb(self, assets: List[Dict[str, Any]]) -> None:
         """
@@ -390,8 +433,8 @@ class DuckDBSonicReader(DuckDBReader):
         # Check database state before loading
         self._verify_database_records_before_loading()
         
-        # Create assets table using dynamic schema
-        self._create_assets_table(self.conn)
+        # Create assets table using dynamic schema (only if not exists)
+        self._create_assets_table_if_not_exists(self.conn)
         
         # Use optimized batch insertion
         self._insert_asset_batch_optimized(assets)
@@ -424,6 +467,26 @@ class DuckDBSonicReader(DuckDBReader):
         except Exception as e:
             pass  # Error checking database state
     
+    def _create_assets_table_if_not_exists(self, conn) -> None:
+        """Create assets table only if it doesn't already exist"""
+        try:
+            # Check if table already exists
+            tables = conn.execute("SHOW TABLES").fetchall()
+            table_names = [table[0] for table in tables] if tables else []
+            
+            if 'assets' in table_names:
+                # Table already exists, skip creation
+                print(f"📋 Table 'assets' already exists, skipping creation")
+                return
+            
+            # Create the table using the base class method
+            print(f"📋 Table 'assets' does not exist, creating now...")
+            self._create_assets_table(conn)
+        except Exception as e:
+            # If check fails, create the table anyway
+            print(f"⚠️ Error checking table existence: {e}, creating table anyway...")
+            self._create_assets_table(conn)
+    
     def _verify_database_records(self):
         """Verify database records after loading"""
         try:
@@ -451,25 +514,31 @@ class DuckDBSonicReader(DuckDBReader):
             assets: List of processed asset dictionaries
         """
         if not assets:
+            print("⚠️ No assets to load into database")
             return
         
+        print(f"🗄️ Starting database loading for {len(assets)} assets...")
         
         # Check database state before loading
         self._verify_database_records_before_loading()
         
-        # Create assets table using dynamic schema
-        self._create_assets_table(self.conn)
+        # Create assets table using dynamic schema (only if not exists)
+        self._create_assets_table_if_not_exists(self.conn)
         
         # Split assets into chunks for multiprocessing
+        print(f"📊 Analyzing asset dataset: {len(assets):,} assets")
+        
         # For large datasets, use more chunks for better parallelism, but align with workers
         if len(assets) > 100000:  # Large dataset (>100K assets)
             # Use more chunks: min(workers * 4, assets / 10000, workers * 2)
             # This ensures we don't create too many chunks that can't be processed efficiently
             optimal_asset_chunks = min(self.max_workers * 4, max(len(assets) // 10000, self.max_workers * 2), self.max_workers * 8)
             chunk_size = max(1000, len(assets) // optimal_asset_chunks)
+            print(f"🌊 Large dataset - using {optimal_asset_chunks} chunks of ~{chunk_size:,} assets each")
         else:
             # For smaller datasets, use workers as chunks
             chunk_size = max(1000, len(assets) // self.max_workers)
+            print(f"⚡ Small dataset - using {self.max_workers} chunks of ~{chunk_size:,} assets each")
         
         asset_chunks = [assets[i:i + chunk_size] for i in range(0, len(assets), chunk_size)]
         
@@ -486,37 +555,60 @@ class DuckDBSonicReader(DuckDBReader):
             
             # Collect results as they complete
             processed_chunks = 0
-            for future in as_completed(future_to_chunk):
+            start_time = time.time()
+            
+            print(f"⏱️ Starting parallel processing at {time.strftime('%H:%M:%S')}")
+            
+            for future in as_completed(future_to_chunk, timeout=300):  # 5 minute timeout
                 try:
-                    chunk_data = future.result()
+                    print(f"🔄 Processing chunk {processed_chunks + 1}/{len(asset_chunks)}...")
+                    chunk_data = future.result(timeout=60)  # 1 minute per chunk
+                    print(f"📦 Chunk {processed_chunks + 1} completed, inserting into database...")
+                    
                     self._insert_chunk_data_into_main_db(chunk_data)
                     processed_chunks += 1
                     
+                    print(f"✅ Chunk {processed_chunks} inserted successfully")
+                    
                     # Debug: Show database state after first chunk is processed
                     if processed_chunks == 1:
-                        print(f"\n🔍 DATABASE STATE AFTER FIRST CHUNK PROCESSED:")
                         self._verify_database_records()
                     
-                    # Progress update
+                    # Progress update with timing
                     progress = (processed_chunks / len(asset_chunks)) * 100
-                    print(f"📊 Progress: {progress:.1f}% ({processed_chunks}/{len(asset_chunks)} chunks processed)")
+                    elapsed = time.time() - start_time
+                    if processed_chunks > 0:
+                        eta = (elapsed / processed_chunks) * (len(asset_chunks) - processed_chunks)
+                        print(f"📊 Progress: {progress:.1f}% ({processed_chunks}/{len(asset_chunks)} chunks processed) - ETA: {eta:.1f}s")
+                    else:
+                        print(f"📊 Progress: {progress:.1f}% ({processed_chunks}/{len(asset_chunks)} chunks processed)")
                     
                 except Exception as e:
                     chunk = future_to_chunk[future]
+                    print(f"❌ Error processing chunk {processed_chunks + 1}: {e}")
+                    import traceback
+                    traceback.print_exc()
                     pass  # Error processing chunk
         
         # Create indexes for better query performance (after all data is inserted)
+        print("🔍 Creating database indexes for better query performance...")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_id ON assets(id)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
+        print("✅ Database indexes created successfully")
         
         # Verify database records after loading
+        print("🔍 Verifying final database state...")
         self._verify_database_records()
+        
+        total_time = time.time() - start_time
+        print(f"✅ Database loading completed in {total_time:.1f} seconds")
+        print(f"📊 Final stats: {len(assets):,} assets loaded using {self.max_workers} workers")
     
-    def _load_assets_into_duckdb_multiprocessing_separate_db(self, assets: List[Dict[str, Any]]) -> None:
+    def _load_assets_into_duckdb_multiprocessing_memory(self, assets: List[Dict[str, Any]]) -> None:
         """
-        Load processed assets into DuckDB using true multiprocessing with separate databases.
+        Load processed assets into DuckDB using true multiprocessing with in-memory processing.
         This is the fastest method for very large datasets.
         
         Args:
@@ -530,7 +622,7 @@ class DuckDBSonicReader(DuckDBReader):
         self._verify_database_records_before_loading()
         
         # Create main assets table using dynamic schema
-        self._create_assets_table(self.conn)
+        self._create_assets_table_if_not_exists(self.conn)
         
         # Split assets into chunks for multiprocessing
         # For large datasets, use more chunks for better parallelism, but align with workers
@@ -545,14 +637,14 @@ class DuckDBSonicReader(DuckDBReader):
         
         asset_chunks = [assets[i:i + chunk_size] for i in range(0, len(assets), chunk_size)]
         
-        print(f"🚀 Processing {len(assets):,} assets using {self.max_workers} separate processes...")
-        print(f"📦 Creating {len(asset_chunks)} separate database files")
+        print(f"🚀 Processing {len(assets):,} assets using {self.max_workers} parallel processes...")
+        print(f"📦 Processing {len(asset_chunks)} chunks in parallel with in-memory databases")
         
-        # Use multiprocessing with separate databases
+        # Use multiprocessing with in-memory processing
         # Use all available workers for maximum parallelism
-        temp_db_paths = []
+        all_chunk_data = []
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all chunks for parallel processing with separate databases
+            # Submit all chunks for parallel processing
             future_to_chunk = {
                 executor.submit(self._process_asset_chunk_with_separate_db, chunk, self.folder_path, i): chunk 
                 for i, chunk in enumerate(asset_chunks)
@@ -560,16 +652,15 @@ class DuckDBSonicReader(DuckDBReader):
             
             # Collect results as they complete
             processed_chunks = 0
-            for future in as_completed(future_to_chunk):
+            for future in as_completed(future_to_chunk, timeout=300):  # 5 minute timeout
                 try:
-                    temp_db_path = future.result()
-                    if temp_db_path:
-                        temp_db_paths.append(temp_db_path)
+                    chunk_data = future.result(timeout=60)  # 1 minute per chunk
+                    if chunk_data:
+                        all_chunk_data.extend(chunk_data)
                     processed_chunks += 1
                     
                     # Debug: Show database state after first chunk is processed
                     if processed_chunks == 1:
-                        print(f"\n🔍 DATABASE STATE AFTER FIRST CHUNK PROCESSED:")
                         self._verify_database_records()
                     
                     # Progress update
@@ -580,18 +671,27 @@ class DuckDBSonicReader(DuckDBReader):
                     chunk = future_to_chunk[future]
                     pass  # Error processing chunk
         
-        # Merge all temporary databases into the main database
-        print(f"🔗 Merging {len(temp_db_paths)} separate databases into main database at {self.db_path}")
-        self._merge_chunk_databases(temp_db_paths)
+        # Insert all collected data into the main database
+        print(f"🔗 Inserting {len(all_chunk_data)} processed records into main database...")
+        if all_chunk_data:
+            print(f"📊 Database insertion progress: Starting insertion of {len(all_chunk_data)} records")
+            self._insert_chunk_data_into_main_db(all_chunk_data)
+            print(f"✅ Database insertion complete: {len(all_chunk_data)} records inserted")
         
         # Create indexes for better query performance (after all data is merged)
+        print("🔍 Creating database indexes for better query performance...")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_id ON assets(id)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
         self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
+        print("✅ Database indexes created successfully")
         
         # Verify database records after loading
+        print("🔍 Verifying final database state...")
         self._verify_database_records()
+        
+        print(f"✅ Database loading completed successfully!")
+        print(f"📊 Final stats: {len(assets):,} assets loaded using {self.max_workers} workers")
     
     @staticmethod
     def _process_asset_chunk_multiprocessing(asset_chunk: List[Dict[str, Any]], folder_path: str) -> List[tuple]:
@@ -611,19 +711,22 @@ class DuckDBSonicReader(DuckDBReader):
         warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
         logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
         
+        print(f"🔄 Worker process: Processing {len(asset_chunk)} assets...")
+        
         if not asset_chunk:
+            print("⚠️ Worker process: No assets to process")
             return []
         
         # Convert to list of tuples for insertion using dynamic schema
-        data_tuples = DuckDBSonicReader._create_data_tuples_static(asset_chunk)
+        data_tuples = DuckDBSonicMemoryReader._create_data_tuples_static(asset_chunk)
         
+        print(f"✅ Worker process: Completed processing {len(asset_chunk)} assets, returning {len(data_tuples)} tuples")
         return data_tuples
     
     @staticmethod
-    def _process_asset_chunk_with_separate_db(asset_chunk: List[Dict[str, Any]], folder_path: str, chunk_id: int) -> str:
+    def _process_asset_chunk_with_separate_db(asset_chunk: List[Dict[str, Any]], folder_path: str, chunk_id: int) -> List[tuple]:
         """
-        Process a chunk of assets in a separate process with its own DuckDB connection.
-        Creates a temporary database file for this chunk.
+        Process a chunk of assets in a separate process with its own in-memory DuckDB connection.
         
         Args:
             asset_chunk: List of asset dictionaries to process
@@ -631,7 +734,7 @@ class DuckDBSonicReader(DuckDBReader):
             chunk_id: Unique identifier for this chunk
             
         Returns:
-            Path to the temporary database file created
+            List of data tuples ready for database insertion
         """
         if not asset_chunk:
             return None
@@ -642,15 +745,9 @@ class DuckDBSonicReader(DuckDBReader):
         warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
         logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
         
-        import tempfile
-        import os
-        
-        # Create temporary database file for this chunk
-        temp_db_path = os.path.join(tempfile.gettempdir(), f"duckdb_chunk_{chunk_id}.duckdb")
-        
-        # Create separate DuckDB connection for this process
+        # Use in-memory database for chunk processing
         import duckdb
-        conn = duckdb.connect(temp_db_path)
+        conn = duckdb.connect(":memory:")
         
         try:
             # Drop and create assets table using dynamic schema
@@ -671,13 +768,14 @@ class DuckDBSonicReader(DuckDBReader):
             
             create_sql = f"CREATE TABLE assets ({', '.join(column_definitions)})"
             conn.execute(create_sql)
+            # Note: No print statements in worker processes to avoid spam
             
             # Convert to list of tuples for insertion using dynamic schema
-            data_tuples = DuckDBSonicReader._create_data_tuples_static(asset_chunk)
+            data_tuples = DuckDBSonicMemoryReader._create_data_tuples_static(asset_chunk)
             
             # Insert data with dynamic schema
             try:
-                insert_sql = DuckDBSonicReader._get_insert_sql_static()
+                insert_sql = DuckDBSonicMemoryReader._get_insert_sql_static()
             except Exception as e:
                 print(f"⚠️ Error getting insert SQL: {e}")
                 return
@@ -693,7 +791,8 @@ class DuckDBSonicReader(DuckDBReader):
         finally:
             conn.close()
         
-        return temp_db_path
+        # Return the processed data instead of file path
+        return data_tuples
     
     def _merge_chunk_databases(self, temp_db_paths: List[str]) -> None:
         """
@@ -739,6 +838,8 @@ class DuckDBSonicReader(DuckDBReader):
     def _create_data_tuples_static(assets: List[Dict[str, Any]]) -> List[tuple]:
         """Static version of _create_data_tuples for use in multiprocessing"""
         try:
+            print(f"🔧 Worker process: Creating data tuples for {len(assets)} assets...")
+            
             # Get schema from assets.yaml using self-sufficient SchemaGuide
             schema_guide = SchemaGuide()
             table_schema = schema_guide.get_assets_table_schema()  # Uses default path
@@ -747,6 +848,7 @@ class DuckDBSonicReader(DuckDBReader):
                 raise Exception("Schema loading failed")
             
             columns = table_schema['columns']
+            print(f"📋 Worker process: Using {len(columns)} columns from schema")
             
             data_tuples = []
             for i, asset in enumerate(assets):
@@ -775,9 +877,12 @@ class DuckDBSonicReader(DuckDBReader):
                 
                 data_tuples.append(tuple(values))
             
+            print(f"✅ Worker process: Created {len(data_tuples)} data tuples successfully")
             return data_tuples
         except Exception as e:
             print(f"⚠️ Error creating data tuples: {e}")
+            import traceback
+            traceback.print_exc()
             return []
     
     @staticmethod
@@ -818,17 +923,28 @@ class DuckDBSonicReader(DuckDBReader):
             chunk_data: List of data tuples to insert
         """
         if not chunk_data:
+            print("⚠️ No chunk data to insert")
             return
+        
+        print(f"🗄️ Inserting {len(chunk_data)} records into database...")
         
         # Get dynamic schema for INSERT statement
         try:
             insert_sql = self._get_insert_sql()
+            print(f"📝 Using SQL: {insert_sql[:100]}...")
         except Exception as e:
             print(f"⚠️ Error getting insert SQL: {e}")
             return
         
         # Insert chunk data using executemany
-        self.conn.executemany(insert_sql, chunk_data)
+        try:
+            self.conn.executemany(insert_sql, chunk_data)
+            print(f"✅ Successfully inserted {len(chunk_data)} records")
+        except Exception as e:
+            print(f"❌ Error inserting chunk data: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
     
     def _insert_asset_batch_optimized(self, asset_batch: List[Dict[str, Any]]) -> None:
         """
@@ -863,11 +979,12 @@ class DuckDBSonicReader(DuckDBReader):
         if not assets:
             return
         
+        
         # Check database state before loading
         self._verify_database_records_before_loading()
         
-        # Create assets table using dynamic schema
-        self._create_assets_table(self.conn)
+        # Create assets table using dynamic schema (only if not exists)
+        self._create_assets_table_if_not_exists(self.conn)
         
         # Convert to DataFrame for COPY FROM
         import pandas as pd
@@ -952,9 +1069,148 @@ class DuckDBSonicReader(DuckDBReader):
         
         return stats
     
+    def _get_database_connection(self):
+        """Get a new database connection for queries"""
+        # Always create a new connection for each query to ensure data consistency
+        if not self.db_path:
+            raise Exception("Database path not set")
+        
+        # For in-memory databases, we need to use the existing connection
+        # as each new connection creates a separate in-memory database
+        if self.db_path == ":memory:":
+            if not self.conn:
+                raise Exception("In-memory database connection not established")
+            return self.conn
+        
+        # For file-based databases, create a new connection
+        try:
+            return duckdb.connect(str(self.db_path))
+        except Exception as e:
+            raise Exception(f"Failed to connect to database at {self.db_path}: {e}")
+    
+    def load_data_from_folder(self, data_folder: Path) -> None:
+        """Load data from a folder into the database using multiprocessing"""
+        if self.conn is None:
+            raise Exception("Database connection not established")
+        
+        print(f"🗄️ Loading data from folder using Sonic multiprocessing: {data_folder}")
+        print(f"📁 Source folder: {data_folder}")
+        print(f"🔧 Configuration: {self.max_workers} workers, {self.batch_size} batch size, {self.memory_limit_bytes/(1024**3):.1f}GB memory limit")
+        print(f"🔧 Multiprocessing method: {mp.get_start_method()}")
+        
+        # Test multiprocessing functionality
+        self._test_multiprocessing()
+        
+        self._load_json_files_from_folder(data_folder)
+        print(f"✅ Data loaded successfully with Sonic processing")
+    
+    def _test_multiprocessing(self) -> None:
+        """Test multiprocessing functionality to ensure it's working correctly"""
+        try:
+            def test_worker(worker_id: int) -> str:
+                """Simple test function for multiprocessing"""
+                import time
+                time.sleep(0.1)  # Simulate work
+                return f"Worker {worker_id} completed successfully"
+            
+            print(f"🧪 Testing multiprocessing with {self.max_workers} workers...")
+            
+            with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
+                # Submit test tasks
+                futures = [executor.submit(test_worker, i) for i in range(self.max_workers)]
+                
+                # Collect results
+                results = []
+                for future in as_completed(futures):
+                    result = future.result()
+                    results.append(result)
+                
+                print(f"✅ Multiprocessing test successful: {len(results)} workers completed")
+                
+        except Exception as e:
+            print(f"⚠️ Multiprocessing test failed: {e}")
+            print(f"🔧 Falling back to single-threaded processing")
+            # Fallback to single-threaded processing
+            self.max_workers = 1
+    
+    def _load_json_files_from_folder(self, data_folder: Path) -> None:
+        """Load JSON files using multiprocessing from specified folder"""
+        print(f"🔄 Switching to data folder: {data_folder}")
+        # Update the folder path for this load operation
+        original_folder = self.folder_path
+        self.folder_path = data_folder
+        
+        try:
+            # Use the existing multiprocessing load method
+            print(f"📂 Processing files from: {self.folder_path}")
+            self._load_json_files()
+        finally:
+            # Restore original folder path
+            print(f"🔄 Restoring original folder: {original_folder}")
+            self.folder_path = original_folder
+    
+    def setup_database_with_data(self, target_folder: str = None) -> Dict[str, Any]:
+        """
+        Setup database with data loading - Sonic-specific implementation
+        
+        Args:
+            target_folder: Optional target folder to load data from. If None, uses self.folder_path
+            
+        Returns:
+            Dictionary with success status, message, and performance stats
+        """
+        try:
+            # Use provided target folder or default to instance folder
+            data_folder = Path(target_folder) if target_folder else self.folder_path
+            
+            if not data_folder.exists():
+                return {
+                    'success': False,
+                    'message': f"Target folder does not exist: {data_folder}",
+                    'stats': {},
+                    'database_ready': False
+                }
+            
+            # Load data into the database
+            self.load_data_from_folder(data_folder)
+            
+            # Get Sonic-specific performance stats
+            performance_stats = self.get_performance_stats()
+            
+            # Return standardized result with Sonic-specific stats
+            result = {
+                'success': True,
+                'message': 'Database loaded successfully with Sonic multiprocessing!',
+                'stats': {
+                    'total_assets': performance_stats.get('total_assets', 0),
+                    'total_files': performance_stats.get('total_files', 0),
+                    'health_status': performance_stats.get('health_status', 'UNKNOWN'),
+                    'table_count': performance_stats.get('table_count', 0),
+                    'max_workers': performance_stats.get('max_workers', 0),
+                    'file_chunks': performance_stats.get('file_chunks', 0),
+                    'files_per_chunk': performance_stats.get('files_per_chunk', 0),
+                    'processing_time': performance_stats.get('elapsed_time_seconds', 0),
+                    'batch_size': performance_stats.get('batch_size', 0),
+                    'memory_limit_gb': performance_stats.get('memory_limit_gb', 0),
+                    'processed_files': performance_stats.get('processed_files', 0),
+                    'total_files_processed': performance_stats.get('total_files_processed', 0)
+                },
+                'database_ready': True
+            }
+            
+            return result
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'message': f"Database setup failed: {str(e)}",
+                'stats': {},
+                'database_ready': False
+            }
+    
     def check_data_readiness(self) -> Dict[str, Any]:
         """
-        Check data readiness for DuckDBSonicReader with multiprocessing support.
+        Check data readiness for DuckDBSonicMemoryReader with multiprocessing support.
         This method never raises exceptions - all errors are returned in the result.
         
         Returns:
@@ -970,6 +1226,7 @@ class DuckDBSonicReader(DuckDBReader):
             'health_queries': [],
             'source_directory': str(self.folder_path.resolve()),
             'json_files_found': len(list(self.folder_path.glob("*.json"))),
+            'total_files': getattr(self, '_total_files', 0),  # Add processed files count
             'error': None
         }
         
@@ -991,40 +1248,67 @@ class DuckDBSonicReader(DuckDBReader):
             object_count = 0
             
             try:
-                # Check if assets table exists (DuckDB uses information_schema)
-                table_check = self.conn.execute("SELECT table_name FROM information_schema.tables WHERE table_name='assets'").fetchone()
-                if not table_check:
-                    result['error'] = "Assets table not found in Sonic database"
+                # Use the same approach as base class for consistency
+                # Test basic connectivity
+                health_queries.append("SELECT 1 as test_connection")
+                connectivity_result = self._safe_execute_query("SELECT 1 as test_connection")
+                if not connectivity_result['success']:
+                    health_status = 'ERROR'
+                    health_queries.append(f"ERROR: Connection test failed - {connectivity_result['error']}")
+                    result.update({
+                        'health_status': health_status,
+                        'health_queries': health_queries,
+                        'error': f"Database connection failed: {connectivity_result['error']}"
+                    })
                     return result
                 
-                table_count = 1
-                health_queries.append("✅ Assets table exists")
+                # Test table existence and count
+                health_queries.append("SHOW TABLES")
+                tables_result = self._safe_execute_query("SHOW TABLES")
+                if not tables_result['success']:
+                    health_status = 'ERROR'
+                    health_queries.append(f"ERROR: Failed to list tables - {tables_result['error']}")
+                else:
+                    tables = tables_result['data']
+                    table_count = len(tables) if tables else 0
+                    
+                    if table_count == 0:
+                        health_status = 'ERROR'
+                        health_queries.append("ERROR: No tables found in database")
+                    elif 'assets' not in [table.get('name', '') for table in tables]:
+                        health_status = 'WARNING'
+                        health_queries.append("WARNING: assets table not found")
                 
                 # Get object count
-                count_result = self.conn.execute("SELECT COUNT(*) as total FROM assets").fetchone()
-                object_count = count_result[0] if count_result else 0
+                object_count = 0
+                if health_status != 'ERROR':
+                    count_result = self._safe_get_total_objects()
+                    if not count_result['success']:
+                        health_status = 'ERROR'
+                        health_queries.append(f"ERROR: Failed to get object count - {count_result['error']}")
+                    else:
+                        object_count = count_result['data']
                 
-                if object_count == 0:
-                    result['error'] = "Sonic database is empty - no assets found"
-                    return result
+                # Query asset classes count
+                asset_classes = 0
+                if health_status != 'ERROR' and table_count > 0:
+                    asset_classes_result = self._safe_execute_query("SELECT COUNT(DISTINCT assetClass) as asset_classes FROM assets")
+                    if asset_classes_result['success'] and asset_classes_result['data']:
+                        asset_classes = asset_classes_result['data'][0].get('asset_classes', 0)
                 
-                health_queries.append(f"✅ Found {object_count:,} assets in Sonic database")
-                
-                # Check database performance stats
-                performance_stats = self.get_performance_stats()
-                if performance_stats.get('total_assets', 0) > 0:
-                    health_queries.append(f"✅ Sonic processing: {performance_stats.get('max_workers', 0)} workers used")
-                    health_queries.append(f"✅ Performance: {performance_stats.get('assets_per_second', 0):.0f} assets/sec")
+                # Determine overall readiness
+                ready = health_status == 'HEALTHY' and object_count > 0
                 
                 # Update result
                 result.update({
-                    'ready': True,
+                    'ready': ready,
                     'health_status': health_status,
                     'object_count': object_count,
                     'table_count': table_count,
+                    'asset_classes': asset_classes,
                     'database_connected': True,
                     'health_queries': health_queries,
-                    'error': None
+                    'error': None if ready else f"Data not ready: {health_status}, {object_count} objects"
                 })
                 
             except Exception as e:
@@ -1039,10 +1323,10 @@ class DuckDBSonicReader(DuckDBReader):
 
 
 # Factory function for easy creation
-def create_duckdb_sonic_reader(folder_path: str, max_workers: Optional[int] = None, 
-                              batch_size: int = 1000, memory_limit_gb: float = 2.0) -> DuckDBSonicReader:
+def create_duckdb_sonic_memory_reader(folder_path: str, max_workers: Optional[int] = None, 
+                                     batch_size: int = 1000, memory_limit_gb: float = 2.0) -> DuckDBSonicMemoryReader:
     """
-    Create a DuckDBSonicReader instance.
+    Create a DuckDBSonicMemoryReader instance.
     
     Args:
         folder_path: Path to folder containing JSON files
@@ -1051,6 +1335,6 @@ def create_duckdb_sonic_reader(folder_path: str, max_workers: Optional[int] = No
         memory_limit_gb: Memory limit in GB before switching to streaming mode
         
     Returns:
-        DuckDBSonicReader instance
+        DuckDBSonicMemoryReader instance
     """
-    return DuckDBSonicReader(folder_path, max_workers, batch_size, memory_limit_gb)
+    return DuckDBSonicMemoryReader(folder_path, max_workers, batch_size, memory_limit_gb)

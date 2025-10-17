@@ -6,59 +6,71 @@ import json
 import duckdb
 from pathlib import Path
 from typing import Dict, Any, List
-import tempfile
 import os
 from .base import Reader
 from configreader import SchemaGuide
 
 
-class DuckDBReader(Reader):
+class DuckDBMemoryReader(Reader):
     """Singleton DuckDB reader"""
     
-    _instances = {}  # Class variable to store instances by folder_path
-    _initialized = set()  # Track which folder_paths have been initialized
+    _instance = None  # Class variable to store the singleton instance
+    _initialized = False  # Track if singleton has been initialized
     
-    def __new__(cls, folder_path: str):
-        # Convert to string and normalize path
-        folder_path_str = str(Path(folder_path).resolve())
+    def __new__(cls, folder_path: str = None):
+        # Return existing singleton instance if it exists
+        if cls._instance is not None:
+            return cls._instance
         
-        # Return existing instance if it exists
-        if folder_path_str in cls._instances:
-            return cls._instances[folder_path_str]
-        
-        # Create new instance
-        instance = super(DuckDBReader, cls).__new__(cls)
-        cls._instances[folder_path_str] = instance
+        # Create new singleton instance
+        instance = super(DuckDBMemoryReader, cls).__new__(cls)
+        cls._instance = instance
         return instance
     
-    def __init__(self, folder_path: str):
-        # Convert to string and normalize path
-        folder_path_str = str(Path(folder_path).resolve())
-        
-        # Only initialize once per folder_path
-        if folder_path_str not in self._initialized:
+    def __init__(self, folder_path: str = None):
+        # Only initialize once for singleton
+        if not self._initialized:
+            if folder_path is None:
+                folder_path = "."
             super().__init__(folder_path)
             self.folder_path = Path(folder_path)
             self.db_path = None
             self.conn = None
             self._setup_database()
-            self._initialized.add(folder_path_str)
+            self._initialized = True
+    
+    @classmethod
+    def reset_singleton(cls):
+        """Reset the singleton instance (useful for testing)"""
+        cls._instance = None
+        cls._initialized = False
     
     def _setup_database(self):
-        """Setup DuckDB database and load JSON files"""
-        # Use a persistent database file in the folder instead of temp file
-        self.db_path = self.folder_path / "assets.db"
-        print(f"🗄️ Creating database at: {self.db_path}")
-        self.conn = duckdb.connect(str(self.db_path))
-        print(f"✅ Database connection established")
-        self._load_json_files()
-        print(f"✅ Database setup complete")
+        """Setup DuckDB database connection only (no tables created initially)"""
+        # Use in-memory database for maximum performance
+        self.db_path = ":memory:"
+        print(f"🗄️ Creating in-memory database connection")
+        self.conn = duckdb.connect(self.db_path)
+        print(f"✅ In-memory database connection established")
+        
+        # Database is created but no tables are initialized yet
+        # Tables will be created when data is loaded via load_data() method
+        print(f"✅ Database ready for table creation")
     
     # Schema methods now inherited from base Reader class
     
-    def _load_json_files(self):
-        """Load JSON files into DuckDB"""
-        json_files = list(self.folder_path.glob("*.json"))
+    def load_data_from_folder(self, data_folder: Path) -> None:
+        """Load data from a folder into the database"""
+        if self.conn is None:
+            raise Exception("Database connection not established")
+        
+        print(f"🗄️ Loading data from folder: {data_folder}")
+        self._load_json_files_from_folder(data_folder)
+        print(f"✅ Data loaded successfully")
+    
+    def _load_json_files_from_folder(self, data_folder: Path) -> None:
+        """Load JSON files into DuckDB from specified folder"""
+        json_files = list(data_folder.glob("*.json"))
         if not json_files:
             print("⚠️ No JSON files found in directory")
             return
@@ -139,32 +151,24 @@ class DuckDBReader(Reader):
         
         return asset_count
     
-    def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
-        """Execute a SQL query and return results"""
-        # Create new connection for this query to avoid connection issues
-        if not self.db_path or not os.path.exists(self.db_path):
-            return []
+    def _get_database_connection(self):
+        """Get a new database connection for queries"""
+        # Always create a new connection for each query to ensure data consistency
+        if not self.db_path:
+            raise Exception("Database path not set")
         
-        conn = duckdb.connect(str(self.db_path))
-        try:
-            result = conn.execute(sql_query).fetchall()
-            columns = [desc[0] for desc in conn.description]
-            return [dict(zip(columns, row)) for row in result]
-        finally:
-            conn.close()
-    
-    def get_total_objects(self) -> int:
-        """Get total number of assets in the database"""
-        # Create new connection for this query to avoid connection issues
-        if not self.db_path or not os.path.exists(self.db_path):
-            return 0
+        # For in-memory databases, we need to use the existing connection
+        # as each new connection creates a separate in-memory database
+        if self.db_path == ":memory:":
+            if not self.conn:
+                raise Exception("In-memory database connection not established")
+            return self.conn
         
-        conn = duckdb.connect(str(self.db_path))
+        # For file-based databases, create a new connection
         try:
-            result = conn.execute("SELECT COUNT(*) as count FROM assets").fetchone()
-            return result[0] if result else 0
-        finally:
-            conn.close()
+            return duckdb.connect(str(self.db_path))
+        except Exception as e:
+            raise Exception(f"Failed to connect to database at {self.db_path}: {e}")
     
     def check_data_readiness(self) -> Dict[str, Any]:
         """
@@ -189,8 +193,10 @@ class DuckDBReader(Reader):
         
         # Check if database connection exists
         if not hasattr(self, 'conn') or not self.conn:
-            result['error'] = "Database connection not initialized"
-            return result
+            # For in-memory databases, we need the connection
+            if self.db_path == ":memory:":
+                result['error'] = "In-memory database connection not initialized"
+                return result
         
         # Query database health
         health_status = 'HEALTHY'
@@ -200,6 +206,7 @@ class DuckDBReader(Reader):
         # Test basic connectivity
         health_queries.append("SELECT 1 as test_connection")
         connectivity_result = self._safe_execute_query("SELECT 1 as test_connection")
+        print(f"🔍 DEBUG: Connectivity result: {connectivity_result}")
         if not connectivity_result['success']:
             health_status = 'ERROR'
             health_queries.append(f"ERROR: Connection test failed - {connectivity_result['error']}")
@@ -260,6 +267,13 @@ class DuckDBReader(Reader):
             else:
                 object_count = count_result['data']
         
+        # Query asset classes count
+        asset_classes = 0
+        if health_status != 'ERROR' and table_count > 0:
+            asset_classes_result = self._safe_execute_query("SELECT COUNT(DISTINCT assetClass) as asset_classes FROM assets")
+            if asset_classes_result['success'] and asset_classes_result['data']:
+                asset_classes = asset_classes_result['data'][0].get('asset_classes', 0)
+        
         # Determine overall readiness
         ready = health_status == 'HEALTHY' and object_count > 0
         
@@ -269,6 +283,7 @@ class DuckDBReader(Reader):
             'health_status': health_status,
             'object_count': object_count,
             'table_count': table_count,
+            'asset_classes': asset_classes,
             'database_connected': True,
             'health_queries': health_queries,
             'error': None if ready else f"Data not ready: {health_status}, {object_count} objects"
@@ -298,7 +313,8 @@ class DuckDBReader(Reader):
         """Close the database and clean up resources"""
         if self.conn:
             self.conn.close()
-        if self.db_path and os.path.exists(self.db_path):
+        # Don't try to delete in-memory database files
+        if self.db_path and self.db_path != ":memory:" and os.path.exists(self.db_path):
             os.unlink(self.db_path)
     
     @classmethod
@@ -362,7 +378,7 @@ class DuckDBReader(Reader):
                 total_assets = result[0] if result else 0
                 print(f"📊 Found {total_assets} total assets")
                 
-                # Get file count - DuckDBReader doesn't track source_file, so estimate from folder
+                # Get file count - DuckDBMemoryReader doesn't track source_file, so estimate from folder
                 json_files = list(self.folder_path.glob("*.json"))
                 total_files = len(json_files)
                 print(f"📁 Found {total_files} JSON files in folder")
