@@ -1,5 +1,5 @@
 """
-SonicScanner - High-performance multiprocessing source data scanning operations
+SonicReader - High-performance multiprocessing source data reading operations
 """
 
 import json
@@ -10,14 +10,14 @@ from typing import Dict, Any, List, Set
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import warnings
 import logging
-from .base import Scanner
+from .base import Reader
 
 # Suppress Streamlit warnings in multiprocessing workers
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 
-class SonicScanner(Scanner):
+class SonicReader(Reader):
     """
     Supersonic-high-performance multiprocessing source data scanner.
     

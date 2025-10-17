@@ -14,6 +14,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 
 from dashboard.tabs.base import BaseTab
 from utils.dataframe_utils import safe_dataframe
+from database import DatabaseFactory, DatabaseType
 
 
 class LoadTab(BaseTab):
@@ -36,7 +37,7 @@ class LoadTab(BaseTab):
             st.info(f"📁 **Source Directory**: `{target_folder}`")
         else:
             target_folder = st.text_input(
-                "Enter path to normalised data directory:",
+                "Waiting for normalised to be available...",
                 placeholder="/path/to/normalised/data",
                 key="load_data_path"
             )
@@ -87,9 +88,8 @@ class LoadTab(BaseTab):
             with st.spinner("Checking database status..."):
                 # Use factory to create SonicMemoryDuckdb
                 try:
-                    from database.duckdb import DatabaseFactory
-                    
-                    reader = DatabaseFactory.create_sonic_reader(
+                    reader = DatabaseFactory.create_reader(
+                        DatabaseType.SONIC,
                         target_folder,
                         max_workers=multiprocessing.cpu_count(),
                         batch_size=2000,
@@ -145,10 +145,8 @@ class LoadTab(BaseTab):
         """Load database from normalized data"""
         try:
             with st.spinner("🗄️ Setting up database for high performance analytics..."):
-                # Use factory to create SonicMemoryDuckdb
-                from database.duckdb import DatabaseFactory
-                
-                reader = DatabaseFactory.create_sonic_reader(
+                reader = DatabaseFactory.create_reader(
+                    DatabaseType.SONIC,
                     target_folder,
                     max_workers=multiprocessing.cpu_count(),
                     batch_size=2000,
@@ -231,11 +229,8 @@ class LoadTab(BaseTab):
             return
         
         try:
-            # Use factory to create SonicMemoryDuckdb
-            from database.duckdb import DatabaseFactory
-            
-            # Create sonic reader using factory
-            reader = DatabaseFactory.create_sonic_reader(
+            reader = DatabaseFactory.create_reader(
+                DatabaseType.SONIC,
                 target_folder,
                 max_workers=multiprocessing.cpu_count(),
                 batch_size=2000,
@@ -500,11 +495,7 @@ class LoadTab(BaseTab):
             return
         
         try:
-            # Query database for this specific asset
-            from database.duckdb import DatabaseFactory
-            
-            # Use factory pattern: create sonic reader directly
-            reader = DatabaseFactory.create_sonic_reader(target_folder)
+            reader = DatabaseFactory.create_reader(DatabaseType.SONIC, target_folder)
             
             # Check if reader is ready
             readiness_result = reader.check_data_readiness()

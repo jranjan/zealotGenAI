@@ -23,14 +23,22 @@ class OwnershipAnalyserTab(BaseTab):
             tab_name="Ownership",
             description=""
         )
-        self.analyser = OwnerAnalyser()
+        from analyser import AnalyserFactory, AnalyserType
+        self.analyser = AnalyserFactory.create_analyser(AnalyserType.OWNER)
     
     def _render_content(self):
         """Render ownership analysis UI as standalone tab"""
-        # Get the database path from session state (set by Load tab)
+        target_folder = self._get_target_folder()
+        
+        if target_folder:
+            self._display_database_status(target_folder)
+            st.markdown("---")
+            self._render_analysis_tools(target_folder)
+    
+    def _get_target_folder(self):
+        """Get target folder from session state or user input."""
         target_folder = st.session_state.get('database_path')
         
-        # Directory input (fallback if not set by Load tab)
         if not target_folder:
             target_folder = st.text_input(
                 "Enter path to normalised data directory:",
@@ -38,13 +46,10 @@ class OwnershipAnalyserTab(BaseTab):
                 key="ownership_data_path"
             )
         
-        # Database Info Section
-        if target_folder:
-            self._display_database_status(target_folder)
-        
-        # Analysis Tools Section with Left-Right Layout
-        st.markdown("---")
-        
+        return target_folder
+    
+    def _render_analysis_tools(self, target_folder):
+        """Render analysis tools with left-right layout."""
         # Create left and right columns (15% for buttons, 85% for results)
         left_col, right_col = st.columns([0.15, 0.85])
         
@@ -53,27 +58,27 @@ class OwnershipAnalyserTab(BaseTab):
             st.markdown("### Analysis Tools")
             
             # All analysis buttons in single column
-            if st.button("Ownership Summary", type="primary", use_container_width=True):
+            if st.button("Ownership Summary", type="primary", width='stretch'):
                 st.session_state['run_ownership_summary'] = True
                 st.rerun()
             
-            if st.button("Parent Cloud Analysis", type="primary", use_container_width=True):
+            if st.button("Parent Cloud Analysis", type="primary", width='stretch'):
                 st.session_state['run_parent_cloud_analysis'] = True
                 st.rerun()
             
-            if st.button("Cloud Analysis", type="primary", use_container_width=True):
+            if st.button("Cloud Analysis", type="primary", width='stretch'):
                 st.session_state['run_cloud_analysis'] = True
                 st.rerun()
             
-            if st.button("Team Analysis", type="primary", use_container_width=True):
+            if st.button("Team Analysis", type="primary", width='stretch'):
                 st.session_state['run_team_analysis'] = True
                 st.rerun()
             
-            if st.button("MBU Analysis", type="primary", use_container_width=True):
+            if st.button("MBU Analysis", type="primary", width='stretch'):
                 st.session_state['run_mbu_analysis'] = True
                 st.rerun()
             
-            if st.button("BU Analysis", type="primary", use_container_width=True):
+            if st.button("BU Analysis", type="primary", width='stretch'):
                 st.session_state['run_bu_analysis'] = True
                 st.rerun()
         
@@ -367,7 +372,7 @@ class OwnershipAnalyserTab(BaseTab):
             )
             
             # Display the chart
-            st.plotly_chart(fig, width='stretch')
+            st.plotly_chart(fig, use_container_width=True)
             
             # Show summary statistics
             # Display metrics as a table (same style as Transform tab)
@@ -570,7 +575,7 @@ class OwnershipAnalyserTab(BaseTab):
                 # Display table with left alignment
                 st.dataframe(
                     distribution, 
-                    use_container_width=True,
+                    width='stretch',
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
@@ -610,7 +615,7 @@ class OwnershipAnalyserTab(BaseTab):
                 # Display table with left alignment
                 st.dataframe(
                     distribution, 
-                    use_container_width=True,
+                    width='stretch',
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
@@ -661,17 +666,29 @@ class OwnershipAnalyserTab(BaseTab):
                 
                 st.plotly_chart(fig, use_container_width=True)
                 
+                # Clean numeric columns and ensure integer values
+                if 'total_assets' in distribution.columns:
+                    distribution['total_assets'] = clean_numeric_column(distribution['total_assets']).astype(int)
+                if 'unowned_assets' in distribution.columns:
+                    distribution['unowned_assets'] = clean_numeric_column(distribution['unowned_assets']).astype(int)
+                
+                # Rename columns for display
+                display_df = distribution.rename(columns={
+                    'total_assets': 'Total Assets',
+                    'unowned_assets': 'Unowned Assets'
+                })
+                
                 # Display table with left alignment
                 st.dataframe(
-                    distribution, 
-                    use_container_width=True,
+                    display_df, 
+                    width='stretch',
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
                             help=f"Shows {col.lower()} information",
                             width="small"
                         )
-                        for col in distribution.columns
+                        for col in display_df.columns
                     }
                 )
                 st.success("✅ Team analysis completed!")
@@ -749,7 +766,7 @@ class OwnershipAnalyserTab(BaseTab):
             })
             st.dataframe(
                 breakdown_data, 
-                use_container_width=True,
+                width='stretch',
                 column_config={
                     col: st.column_config.TextColumn(
                         col,
@@ -978,11 +995,11 @@ class OwnershipAnalyserTab(BaseTab):
                 # Convert to DataFrame for plotting and ensure proper data types
                 df = safe_dataframe(data)
                 
-                # Ensure numeric columns are properly typed
+                # Ensure numeric columns are properly typed as integers
                 if 'total_assets' in df.columns:
-                    df['total_assets'] = clean_numeric_column(df['total_assets'])
+                    df['total_assets'] = clean_numeric_column(df['total_assets']).astype(int)
                 if 'unowned_assets' in df.columns:
-                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets'])
+                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets']).astype(int)
                 
                 # Rename columns for user-friendly display
                 df_display = df.copy()
@@ -1043,7 +1060,7 @@ class OwnershipAnalyserTab(BaseTab):
                 # Display table with user-friendly headers and left alignment
                 st.dataframe(
                     df_display, 
-                    use_container_width=True,
+                    width='stretch',
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
@@ -1061,11 +1078,11 @@ class OwnershipAnalyserTab(BaseTab):
                 # Convert to DataFrame for plotting and ensure proper data types
                 df = safe_dataframe(data)
                 
-                # Ensure numeric columns are properly typed
+                # Ensure numeric columns are properly typed as integers
                 if 'total_assets' in df.columns:
-                    df['total_assets'] = clean_numeric_column(df['total_assets'])
+                    df['total_assets'] = clean_numeric_column(df['total_assets']).astype(int)
                 if 'unowned_assets' in df.columns:
-                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets'])
+                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets']).astype(int)
                 
                 # Rename columns for user-friendly display
                 df_display = df.copy()
@@ -1126,7 +1143,7 @@ class OwnershipAnalyserTab(BaseTab):
                 # Display table with user-friendly headers and left alignment
                 st.dataframe(
                     df_display, 
-                    use_container_width=True,
+                    width='stretch',
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
@@ -1144,11 +1161,11 @@ class OwnershipAnalyserTab(BaseTab):
                 # Convert to DataFrame for plotting and ensure proper data types
                 df = safe_dataframe(data)
                 
-                # Ensure numeric columns are properly typed
+                # Ensure numeric columns are properly typed as integers
                 if 'total_assets' in df.columns:
-                    df['total_assets'] = clean_numeric_column(df['total_assets'])
+                    df['total_assets'] = clean_numeric_column(df['total_assets']).astype(int)
                 if 'unowned_assets' in df.columns:
-                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets'])
+                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets']).astype(int)
                 
                 # Rename columns for user-friendly display
                 df_display = df.copy()
@@ -1193,7 +1210,7 @@ class OwnershipAnalyserTab(BaseTab):
                 # Display table with user-friendly headers and left alignment
                 st.dataframe(
                     df_display, 
-                    use_container_width=True,
+                    width='stretch',
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
@@ -1211,11 +1228,11 @@ class OwnershipAnalyserTab(BaseTab):
                 # Convert to DataFrame for plotting and ensure proper data types
                 df = safe_dataframe(data)
                 
-                # Ensure numeric columns are properly typed
+                # Ensure numeric columns are properly typed as integers
                 if 'total_assets' in df.columns:
-                    df['total_assets'] = clean_numeric_column(df['total_assets'])
+                    df['total_assets'] = clean_numeric_column(df['total_assets']).astype(int)
                 if 'unowned_assets' in df.columns:
-                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets'])
+                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets']).astype(int)
                 
                 # Rename columns for user-friendly display
                 df_display = df.copy()
@@ -1274,7 +1291,7 @@ class OwnershipAnalyserTab(BaseTab):
                 # Display table with user-friendly headers and left alignment
                 st.dataframe(
                     df_display, 
-                    use_container_width=True,
+                    width='stretch',
                     column_config={
                         col: st.column_config.TextColumn(
                             col,
@@ -1292,11 +1309,11 @@ class OwnershipAnalyserTab(BaseTab):
                 # Convert to DataFrame for plotting and ensure proper data types
                 df = safe_dataframe(data)
                 
-                # Ensure numeric columns are properly typed
+                # Ensure numeric columns are properly typed as integers
                 if 'total_assets' in df.columns:
-                    df['total_assets'] = clean_numeric_column(df['total_assets'])
+                    df['total_assets'] = clean_numeric_column(df['total_assets']).astype(int)
                 if 'unowned_assets' in df.columns:
-                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets'])
+                    df['unowned_assets'] = clean_numeric_column(df['unowned_assets']).astype(int)
                 
                 # Create a combined label for the chart (BU | MBU)
                 df['bu_mbu'] = df['bu'].astype(str) + ' | ' + df['mbu'].astype(str)
@@ -1359,7 +1376,7 @@ class OwnershipAnalyserTab(BaseTab):
                 # Display table with user-friendly headers and left alignment
                 st.dataframe(
                     df_display, 
-                    use_container_width=True,
+                    width='stretch',
                     column_config={
                         col: st.column_config.TextColumn(
                             col,

@@ -213,9 +213,13 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
     def _update_progress(self) -> None:
         """Update progress display."""
         if self._total_files > 0:
-            progress = (self._processed_files / self._total_files) * 100
+            # Ensure progress doesn't exceed 100%
+            progress = min((self._processed_files / self._total_files) * 100, 100.0)
             elapsed = time.time() - self._start_time
-            if self._processed_files > 0:
+            
+            if progress >= 100.0:
+                print(f"✅ Progress: 100.0% ({self._total_files}/{self._total_files}) - Completed in {elapsed:.1f}s")
+            elif self._processed_files > 0:
                 eta = (elapsed / self._processed_files) * (self._total_files - self._processed_files)
                 print(f"📊 Progress: {progress:.1f}% ({self._processed_files}/{self._total_files}) - ETA: {eta:.1f}s")
     

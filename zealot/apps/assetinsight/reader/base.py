@@ -1,5 +1,5 @@
 """
-Scanner Base Class - Abstract base class for data inspection operations
+Reader Base Class - Abstract base class for data reading operations
 """
 
 import os
@@ -8,13 +8,13 @@ from pathlib import Path
 from typing import Dict, Any, List
 
 
-class Scanner(ABC):
+class Reader(ABC):
     """
-    Abstract base class for data inspection and validation operations.
+    Abstract base class for data reading and inspection operations.
     
-    This class defines the interface for different types of data scanning
+    This class defines the interface for different types of data reading
     and validation operations. Subclasses must implement the specific
-    scanning logic.
+    reading logic.
     """
     
     def __init__(self):

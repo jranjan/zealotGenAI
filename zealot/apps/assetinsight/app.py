@@ -110,16 +110,12 @@ project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve(
 sys.path.append(str(project_root / "zealot" / "utils" / "streamlit"))
 
 try:
-    from copyright_footer import StreamlitUI
+    from copyright_footer import render_llm_studio_footer
     
-    StreamlitUI.render_footer(
-        logo_path=str(project_root / "assets" / "logo.jpg"),
-        logo_width=100,
-        copyright_text="All rights reserved",
-        linkedin_url="https://www.linkedin.com/in/jyoti-ranjan-5083595/",
+    render_llm_studio_footer(
+        logo_path=None,  # Use auto-detection
         author_name="Jyoti Ranjan",
-        additional_text="This work reflects my personal AI learning journey and is shared for educational and knowledge-building purposes. While unauthorized reproduction, modification, or commercial use without prior written consent is strictly prohibited, I warmly welcome discussions, feedback, and collaborative learning exchanges.",
-        logo_fallback="🚀"
+        linkedin_url="https://www.linkedin.com/in/jyoti-ranjan-5083595/"
     )
 except ImportError:
     # Fallback to simple footer if import fails

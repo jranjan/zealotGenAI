@@ -1,5 +1,5 @@
 """
-SupersonicFlattener - High-performance multiprocessing data flattening using FlattenerHelper
+SonicFlattener - High-performance multiprocessing data flattening using FlattenerHelper
 
 This module provides a high-performance multiprocessing flattener that leverages
 FlattenerHelper for all flattening operations while using multiprocessing Pool
@@ -30,7 +30,7 @@ class SonicFlattener(BasicFlattener):
     
     def __init__(self, max_workers: int = None, chunk_size: int = 100):
         """
-        Initialize the SupersonicFlattener.
+        Initialize the SonicFlattener.
         
         Args:
             max_workers: Maximum number of worker processes (default: min(cpu_count, 16))
@@ -73,7 +73,7 @@ class SonicFlattener(BasicFlattener):
                 'files': []
             }
         
-        print(f"🚀 SupersonicFlattener: Processing {total_files} files with {self.max_workers} processes")
+        print(f"🚀 SonicFlattener: Processing {total_files} files with {self.max_workers} processes")
         
         # Split files into chunks for processing
         file_chunks = [
@@ -100,7 +100,7 @@ class SonicFlattener(BasicFlattener):
         end_time = time.time()
         processing_time = end_time - start_time
         
-        print(f"🎯 SupersonicFlattener: Completed {total_files} files in {processing_time:.2f}s ({total_files / processing_time:.1f} files/sec)")
+        print(f"🎯 SonicFlattener: Completed {total_files} files in {processing_time:.2f}s ({total_files / processing_time:.1f} files/sec)")
         
         return self.create_result_dict(
             success=True,
@@ -113,13 +113,13 @@ class SonicFlattener(BasicFlattener):
     
     def get_performance_info(self) -> Dict[str, Any]:
         """
-        Get performance information about the SupersonicFlattener.
+        Get performance information about the SonicFlattener.
         
         Returns:
             Dictionary containing performance information
         """
         return {
-            'flattener_type': 'SupersonicFlattener (Multiprocessing)',
+            'flattener_type': 'SonicFlattener (Multiprocessing)',
             'uses_flattener_helper': True,
             'optimized': True,
             'max_workers': self.max_workers,

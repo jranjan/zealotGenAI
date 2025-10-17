@@ -49,8 +49,20 @@ class StreamlitUI:
                 # Display logo or fallback
                 if logo_path and Path(logo_path).exists():
                     try:
-                        st.image(logo_path, width=logo_width)
-                    except Exception:
+                        # Convert absolute path to relative path for Streamlit
+                        logo_path_str = str(logo_path)
+                        if logo_path_str.startswith('/'):
+                            # Try to find a relative path that works
+                            cwd = Path.cwd()
+                            try:
+                                relative_path = Path(logo_path).relative_to(cwd)
+                                st.image(str(relative_path), width=logo_width)
+                            except ValueError:
+                                # If we can't make it relative, try the absolute path
+                                st.image(logo_path_str, width=logo_width)
+                        else:
+                            st.image(logo_path_str, width=logo_width)
+                    except Exception as e:
                         st.write(logo_fallback)
                 else:
                     st.write(logo_fallback)
@@ -155,7 +167,7 @@ class StreamlitUI:
 
 # Convenience functions for common use cases
 def render_llm_studio_footer(
-    logo_path: str = "assets/logo.jpg",
+    logo_path: str = None,
     author_name: str = "Jyoti Ranjan",
     linkedin_url: str = "https://www.linkedin.com/in/jyoti-ranjan-5083595/",
     project_name: str = "LLM Studio"
@@ -164,11 +176,27 @@ def render_llm_studio_footer(
     Render a footer specifically designed for LLM Studio apps
     
     Args:
-        logo_path: Path to logo image
+        logo_path: Path to logo image (if None, will try to find assets/images/logo.jpg)
         author_name: Author name
         linkedin_url: LinkedIn profile URL
         project_name: Name of the project
     """
+    # Auto-detect logo path if not provided
+    if logo_path is None:
+        possible_paths = [
+            "assets/images/logo.jpg",
+            "../assets/images/logo.jpg",
+            "../../assets/images/logo.jpg",
+            "../../../assets/images/logo.jpg",
+            "../../../../assets/images/logo.jpg"
+        ]
+        for path in possible_paths:
+            if Path(path).exists():
+                logo_path = path
+                break
+        else:
+            logo_path = None  # No logo found
+    
     additional_text = (
         f"This work reflects my personal AI learning journey and is shared for educational and knowledge-building purposes. "
         f"While unauthorized reproduction, modification, or commercial use without prior written consent is strictly prohibited, "
