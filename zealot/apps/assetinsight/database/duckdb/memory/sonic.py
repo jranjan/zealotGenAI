@@ -23,6 +23,7 @@ warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").setLevel(logging.ERROR)
 
 from .basic import BasicMemoryDuckdb
+from common.asset_class import AssetClass
 from configreader import SchemaGuide
 
 
@@ -81,8 +82,6 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         if not self.folder_path or not os.path.exists(self.folder_path):
             raise ValueError(f"Folder does not exist: {self.folder_path}")
         
-        # Reset debug counter for this loading session
-        SonicMemoryDuckdb._debug_count = 0
         
         # Find all JSON files with size information
         json_files = self._get_file_list_with_sizes()
@@ -120,8 +119,13 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         # Create balanced file chunks based on file sizes
         self._file_chunks = self._create_balanced_chunks(files_with_sizes)
         
+        print(f"🚀 SonicMemoryDuckdb: Processing {len(files_with_sizes)} files in {len(self._file_chunks)} chunks with {self.max_workers} workers")
+        
         # Process files in parallel with progress tracking
         all_assets = []
+        completed_chunks = 0
+        total_files = len(files_with_sizes)
+        start_time = time.time()
         
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all chunks for processing
@@ -133,34 +137,70 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             # Collect results as they complete with progress updates
             for future in as_completed(future_to_chunk):
                 try:
+                    chunk_start_time = time.time()
                     chunk_assets, processed_count = future.result()
                     all_assets.extend(chunk_assets)
                     # processed_count represents files in this chunk, so add it to total
                     self._processed_files += processed_count
+                    completed_chunks += 1
+                    
+                    # Calculate timing and progress
+                    chunk_end_time = time.time()
+                    chunk_duration = chunk_end_time - chunk_start_time
+                    total_elapsed = chunk_end_time - start_time
+                    chunk_progress = (completed_chunks / len(self._file_chunks)) * 100
+                    file_progress = (self._processed_files / total_files) * 100
+                    
+                    # Calculate average time per chunk and estimated remaining time
+                    avg_time_per_chunk = total_elapsed / completed_chunks
+                    remaining_chunks = len(self._file_chunks) - completed_chunks
+                    estimated_remaining_time = remaining_chunks * avg_time_per_chunk
+                    
+                    # Calculate processing rate
+                    files_per_second = self._processed_files / total_elapsed if total_elapsed > 0 else 0
+                    assets_per_second = len(all_assets) / total_elapsed if total_elapsed > 0 else 0
+                    
+                    print(f"📦 Processed chunk {completed_chunks}/{len(self._file_chunks)} ({chunk_progress:.1f}%) - {processed_count} files, {len(chunk_assets)} assets in {chunk_duration:.2f}s | Files: {self._processed_files}/{total_files} ({file_progress:.1f}%) | Rate: {files_per_second:.1f} files/s, {assets_per_second:.0f} assets/s | ETA: {estimated_remaining_time:.1f}s")
                     self._update_progress()
                 except Exception as e:
                     chunk = future_to_chunk[future]
+                    print(f"❌ Error processing chunk {completed_chunks + 1}: {str(e)}")
                     pass  # Error processing chunk
         
         # Load all assets into DuckDB using multiprocessing
         if all_assets:
+            print(f"💾 Loading {len(all_assets)} assets into database...")
             # Choose the best method based on data size
-            if len(all_assets) > 10000:  # Use separate databases for large datasets
-                self._load_assets_into_duckdb_multiprocessing_separate_db(all_assets)
+            if len(all_assets) > 10000:  # Use regular multiprocessing for large datasets
+                self._load_assets_into_duckdb_parallel(all_assets)
             else:  # Use shared memory approach for smaller datasets
                 self._load_assets_into_duckdb_parallel(all_assets)
+            print(f"✅ Successfully loaded {len(all_assets)} assets into database")
     
     def _load_files_streaming(self, files_with_sizes: List[Tuple[Path, int]]) -> None:
         """Load files using streaming mode for memory efficiency."""
         # Sort files by size (largest first) for better memory management
         sorted_files = sorted(files_with_sizes, key=lambda x: x[1], reverse=True)
         
+        print(f"🌊 SonicMemoryDuckdb: Processing {len(sorted_files)} files in streaming mode")
+        
         # Process files in smaller batches to manage memory
         batch_size = max(1, len(sorted_files) // (self.max_workers * 2))
+        total_batches = (len(sorted_files) + batch_size - 1) // batch_size
+        total_files = len(sorted_files)
+        start_time = time.time()
         
         for i in range(0, len(sorted_files), batch_size):
+            batch_start_time = time.time()
             batch = sorted_files[i:i + batch_size]
             batch_assets = []
+            batch_num = (i // batch_size) + 1
+            
+            # Calculate percentage progress
+            batch_progress = (batch_num / total_batches) * 100
+            file_progress = (self._processed_files / total_files) * 100
+            
+            print(f"📦 Processing batch {batch_num}/{total_batches} ({batch_progress:.1f}%) - {len(batch)} files | Files: {self._processed_files}/{total_files} ({file_progress:.1f}%)")
             
             # Process batch files
             for file_path, _ in batch:
@@ -170,12 +210,22 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
                     self._processed_files += 1
                     self._update_progress()
                 except Exception as e:
+                    print(f"❌ Error processing file {file_path.name}: {str(e)}")
                     pass  # Error processing file
             
             # Load batch into DuckDB immediately
             if batch_assets:
+                db_start_time = time.time()
+                print(f"💾 Loading batch {batch_num} with {len(batch_assets)} assets into database...")
                 self._load_assets_into_duckdb(batch_assets)
-                pass  # Batch loaded
+                db_duration = time.time() - db_start_time
+                
+                # Calculate timing and rates
+                batch_duration = time.time() - batch_start_time
+                total_elapsed = time.time() - start_time
+                files_per_second = self._processed_files / total_elapsed if total_elapsed > 0 else 0
+                
+                print(f"✅ Batch {batch_num} loaded successfully in {batch_duration:.2f}s (DB: {db_duration:.2f}s) | Rate: {files_per_second:.1f} files/s")
     
     def _create_balanced_chunks(self, files_with_sizes: List[Tuple[Path, int]]) -> List[List[Path]]:
         """Create balanced file chunks based on file sizes for optimal load distribution."""
@@ -217,11 +267,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             progress = min((self._processed_files / self._total_files) * 100, 100.0)
             elapsed = time.time() - self._start_time
             
-            if progress >= 100.0:
-                print(f"✅ Progress: 100.0% ({self._total_files}/{self._total_files}) - Completed in {elapsed:.1f}s")
-            elif self._processed_files > 0:
-                eta = (elapsed / self._processed_files) * (self._total_files - self._processed_files)
-                print(f"📊 Progress: {progress:.1f}% ({self._processed_files}/{self._total_files}) - ETA: {eta:.1f}s")
+            # Progress tracking removed for performance
     
     @staticmethod
     def _process_file_chunk_optimized(file_chunk: List[Path]) -> Tuple[List[Dict[str, Any]], int]:
@@ -297,7 +343,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             # Process each asset
             for asset in file_assets:
                 if isinstance(asset, dict):
-                    processed_asset = MemorySonicDuckdb._process_single_asset_optimized(asset)
+                    processed_asset = SonicMemoryDuckdb._process_single_asset_optimized(asset)
                     if processed_asset:
                         assets.append(processed_asset)
                         
@@ -329,6 +375,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             properties_json = SonicMemoryDuckdb._reconstruct_nested_json_static(asset, 'properties_')
             tags_json = SonicMemoryDuckdb._reconstruct_nested_json_static(asset, 'tags_')
             raw_data_json = orjson.dumps(asset).decode('utf-8')
+            
             
             
             # Use flattened data directly from the flattened files
@@ -394,16 +441,13 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         self._verify_database_records_before_loading()
         
         # Create assets table using dynamic schema
-        self._create_assets_table(self.conn)
+        self._create_all_tables(self.conn)
         
         # Use optimized batch insertion
         self._insert_asset_batch_optimized(assets)
         
         # Create indexes for better query performance
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_id ON assets(id)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
+        self._create_indexes_on_all_tables()
         
         # Verify database records after loading
         self._verify_database_records()
@@ -411,38 +455,67 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
     def _verify_database_records_before_loading(self):
         """Check database state before loading data"""
         try:
-            # Check if assets table exists
+            # Check if any asset tables exist
             tables = self.conn.execute("SHOW TABLES").fetchall()
             table_names = [table[0] for table in tables] if tables else []
             
-            if 'assets' not in table_names:
-                pass  # No table exists, ready to create
+            # Get all expected table names
+            expected_tables = AssetClass.get_all_table_names()
+            
+            # Check if any expected tables exist
+            existing_asset_tables = [t for t in table_names if t in expected_tables]
+            
+            if not existing_asset_tables:
+                pass  # No asset tables exist, ready to create
             else:
-                # Check if table is empty
-                result = self.conn.execute("SELECT COUNT(*) FROM assets").fetchone()
-                if result and result[0] > 0:
-                    pass  # Table has data
+                # Check if any table has data
+                total_records = 0
+                for table_name in existing_asset_tables:
+                    try:
+                        result = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                        if result:
+                            total_records += result[0]
+                    except Exception:
+                        continue
+                
+                if total_records > 0:
+                    pass  # Tables have data
                 else:
-                    pass  # Table is empty, ready to load
+                    pass  # Tables are empty, ready to load
         except Exception as e:
             pass  # Error checking database state
     
     def _verify_database_records(self):
         """Verify database records after loading"""
         try:
-            # Query first 3 records from database to verify data was written correctly
-            result = self.conn.execute("""
-                SELECT 
-                    id, name, assetClass, status,
-                    parent_cloud, cloud, team,
-                    properties, tags
-                FROM assets 
-                LIMIT 3
-            """).fetchall()
+            # Get all table names from the mapping
+            table_names = AssetClass.get_all_table_names()
             
-            # Verification complete - data loaded successfully
-            pass
+            total_records = 0
+            for table_name in table_names:
+                try:
+                    # Check if table exists and has data
+                    result = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                    if result and result[0] > 0:
+                        count = result[0]
+                        total_records += count
+                        
+                        # Show sample records from first table with data
+                        if total_records == count:  # First table with data
+                            sample = self.conn.execute(f"""
+                                SELECT 
+                                    id, name, assetClass, status,
+                                    parent_cloud, cloud, team
+                                FROM {table_name} 
+                                LIMIT 3
+                            """).fetchall()
+                            if sample:
+                                pass  # Sample records available
+                except Exception as e:
+                    # Table doesn't exist, skip
+                    continue
             
+            # Database verification completed
         except Exception as e:
             pass  # Error verifying database records
     
@@ -461,7 +534,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         self._verify_database_records_before_loading()
         
         # Create assets table using dynamic schema
-        self._create_assets_table(self.conn)
+        self._create_all_tables(self.conn)
         
         # Split assets into chunks for multiprocessing
         # For large datasets, use more chunks for better parallelism, but align with workers
@@ -476,8 +549,8 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         
         asset_chunks = [assets[i:i + chunk_size] for i in range(0, len(assets), chunk_size)]
         
-        print(f"🚀 Inserting {len(assets):,} assets using {self.max_workers} processes...")
-        print(f"📦 Processing {len(asset_chunks)} chunks of ~{chunk_size:,} assets each")
+        
+        print(f"🗄️ Database insertion: Processing {len(assets)} assets in {len(asset_chunks)} chunks")
         
         # Use multiprocessing for parallel database operations
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
@@ -489,30 +562,37 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             
             # Collect results as they complete
             processed_chunks = 0
+            total_chunks = len(asset_chunks)
+            start_time = time.time()
+            
             for future in as_completed(future_to_chunk):
                 try:
+                    chunk_start_time = time.time()
                     chunk_data = future.result()
                     self._insert_chunk_data_into_main_db(chunk_data)
                     processed_chunks += 1
                     
-                    # Debug: Show database state after first chunk is processed
-                    if processed_chunks == 1:
-                        print(f"\n🔍 DATABASE STATE AFTER FIRST CHUNK PROCESSED:")
-                        self._verify_database_records()
+                    # Calculate timing and progress
+                    chunk_end_time = time.time()
+                    chunk_duration = chunk_end_time - chunk_start_time
+                    total_elapsed = chunk_end_time - start_time
+                    db_progress = (processed_chunks / total_chunks) * 100
                     
-                    # Progress update
-                    progress = (processed_chunks / len(asset_chunks)) * 100
-                    print(f"📊 Progress: {progress:.1f}% ({processed_chunks}/{len(asset_chunks)} chunks processed)")
+                    # Calculate average time per chunk and estimated remaining time
+                    avg_time_per_chunk = total_elapsed / processed_chunks
+                    remaining_chunks = total_chunks - processed_chunks
+                    estimated_remaining_time = remaining_chunks * avg_time_per_chunk
+                    
+                    print(f"💾 Database chunk {processed_chunks}/{total_chunks} ({db_progress:.1f}%) - {len(chunk_data)} records inserted in {chunk_duration:.2f}s | ETA: {estimated_remaining_time:.1f}s")
                     
                 except Exception as e:
                     chunk = future_to_chunk[future]
                     pass  # Error processing chunk
         
         # Create indexes for better query performance (after all data is inserted)
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_id ON assets(id)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
+        print(f"🔍 Creating database indexes...")
+        self._create_indexes_on_all_tables()
+        print(f"✅ Database insertion completed - {len(assets)} assets loaded successfully")
         
         # Verify database records after loading
         self._verify_database_records()
@@ -533,7 +613,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         self._verify_database_records_before_loading()
         
         # Create main assets table using dynamic schema
-        self._create_assets_table(self.conn)
+        self._create_all_tables(self.conn)
         
         # Split assets into chunks for multiprocessing
         # For large datasets, use more chunks for better parallelism, but align with workers
@@ -548,8 +628,6 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         
         asset_chunks = [assets[i:i + chunk_size] for i in range(0, len(assets), chunk_size)]
         
-        print(f"🚀 Processing {len(assets):,} assets using {self.max_workers} separate processes...")
-        print(f"📦 Creating {len(asset_chunks)} separate database files")
         
         # Use multiprocessing with separate databases
         # Use all available workers for maximum parallelism
@@ -570,28 +648,17 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
                         temp_db_paths.append(temp_db_path)
                     processed_chunks += 1
                     
-                    # Debug: Show database state after first chunk is processed
-                    if processed_chunks == 1:
-                        print(f"\n🔍 DATABASE STATE AFTER FIRST CHUNK PROCESSED:")
-                        self._verify_database_records()
-                    
-                    # Progress update
-                    progress = (processed_chunks / len(asset_chunks)) * 100
-                    print(f"📊 Progress: {progress:.1f}% ({processed_chunks}/{len(asset_chunks)} chunks processed)")
+                    # Progress tracking removed for performance
                     
                 except Exception as e:
                     chunk = future_to_chunk[future]
                     pass  # Error processing chunk
         
         # Merge all temporary databases into the main database
-        print(f"🔗 Merging {len(temp_db_paths)} separate databases into main database at {self.db_path}")
         self._merge_chunk_databases(temp_db_paths)
         
         # Create indexes for better query performance (after all data is merged)
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_id ON assets(id)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
+        self._create_indexes_on_all_tables()
         
         # Verify database records after loading
         self._verify_database_records()
@@ -617,7 +684,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         if not asset_chunk:
             return []
         
-        # Convert to list of tuples for insertion using dynamic schema
+        # Assets are already processed, convert directly to tuples
         data_tuples = SonicMemoryDuckdb._create_data_tuples_static(asset_chunk)
         
         return data_tuples
@@ -656,8 +723,10 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         conn = duckdb.connect(temp_db_path)
         
         try:
-            # Drop and create assets table using dynamic schema
-            conn.execute("DROP TABLE IF EXISTS assets")
+            # Determine the appropriate table name for this chunk
+            # For chunk databases, we'll use a generic table name since we don't know the asset class distribution
+            table_name = "chunk_assets"
+            conn.execute(f"DROP TABLE IF EXISTS {table_name}")
             
             # Get dynamic schema from SchemaGuide
             from configreader.schema.guide import SchemaGuide
@@ -672,26 +741,35 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
                 col_type = col['data_type']
                 column_definitions.append(f"{col_name} {col_type}")
             
-            create_sql = f"CREATE TABLE IF NOT EXISTS assets ({', '.join(column_definitions)})"
+            create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(column_definitions)})"
             conn.execute(create_sql)
             
+            # First process the assets to reconstruct properties and tags
+            processed_assets = []
+            for asset in asset_chunk:
+                processed_asset = SonicMemoryDuckdb._process_single_asset_optimized(asset)
+                if processed_asset:
+                    processed_assets.append(processed_asset)
+            
             # Convert to list of tuples for insertion using dynamic schema
-            data_tuples = SonicMemoryDuckdb._create_data_tuples_static(asset_chunk)
+            data_tuples = SonicMemoryDuckdb._create_data_tuples_static(processed_assets)
             
             # Insert data with dynamic schema
             try:
-                insert_sql = SonicMemoryDuckdb._get_insert_sql_static()
+                # Create insert SQL for the chunk table
+                column_names = [col['column_name'] for col in table_schema['columns']]
+                placeholders = ', '.join(['?' for _ in column_names])
+                insert_sql = f"INSERT INTO {table_name} ({', '.join(column_names)}) VALUES ({placeholders})"
             except Exception as e:
-                print(f"⚠️ Error getting insert SQL: {e}")
                 return
             
             conn.executemany(insert_sql, data_tuples)
             
-            # Create indexes
-            conn.execute("CREATE INDEX idx_assets_id ON assets(id)")
-            conn.execute("CREATE INDEX idx_assets_parent_cloud ON assets(parent_cloud)")
-            conn.execute("CREATE INDEX idx_assets_cloud ON assets(cloud)")
-            conn.execute("CREATE INDEX idx_assets_team ON assets(team)")
+            # Create indexes on the table that was used for insertion
+            conn.execute(f"CREATE INDEX idx_{table_name}_id ON {table_name}(id)")
+            conn.execute(f"CREATE INDEX idx_{table_name}_parent_cloud ON {table_name}(parent_cloud)")
+            conn.execute(f"CREATE INDEX idx_{table_name}_cloud ON {table_name}(cloud)")
+            conn.execute(f"CREATE INDEX idx_{table_name}_team ON {table_name}(team)")
             
         finally:
             conn.close()
@@ -715,7 +793,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
                 self.conn.execute(f"ATTACH '{temp_db_path}' AS chunk_db")
                 
                 # Copy data from chunk to main table
-                self.conn.execute("INSERT INTO assets SELECT * FROM chunk_db.assets")
+                self.conn.execute(f"INSERT INTO chunk_assets SELECT * FROM chunk_db.chunk_assets")
                 
                 # Detach the temporary database
                 self.conn.execute("DETACH chunk_db")
@@ -726,7 +804,6 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
                 
                 # Progress update
                 progress = (i / len(temp_db_paths)) * 100
-                print(f"📊 Merge Progress: {progress:.1f}% ({i}/{len(temp_db_paths)}) - Merged chunk {i} from {os.path.basename(temp_db_path)}")
                 
             except Exception as e:
                 pass  # Error merging chunk database
@@ -734,7 +811,6 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
                 if os.path.exists(temp_db_path):
                     os.remove(temp_db_path)
         
-        print(f"✅ Merge Complete: Successfully merged {merged_count}/{len(temp_db_paths)} chunk databases into main database")
     
     # _create_data_tuples now inherited from base Reader class
     
@@ -744,7 +820,14 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         try:
             # Get schema from assets.yaml using self-sufficient SchemaGuide
             schema_guide = SchemaGuide()
-            table_schema = schema_guide.get_assets_table_schema()  # Uses default path
+            # Use the first available table schema for consistency
+            all_schemas = schema_guide.get_all_table_schemas()
+            if not all_schemas:
+                raise Exception("No table schemas available")
+            
+            # Use the first table's schema for tuple creation
+            first_table_name = list(all_schemas.keys())[0]
+            table_schema = all_schemas[first_table_name]
             
             if not table_schema or 'columns' not in table_schema:
                 raise Exception("Schema loading failed")
@@ -780,7 +863,6 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             
             return data_tuples
         except Exception as e:
-            print(f"⚠️ Error creating data tuples: {e}")
             return []
     
     @staticmethod
@@ -797,25 +879,44 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
                 if value is not None and value != '':
                     nested_obj[original_key] = value
         
-        
         return json.dumps(nested_obj)
     
-    @staticmethod
-    def _get_insert_sql_static() -> str:
-        """Static version of _get_insert_sql for use in multiprocessing"""
+    def _get_table_name_for_asset(self, asset: Dict[str, Any]) -> str:
+        """Determine which table to insert the asset into based on assetClass using AssetClass enum"""
+        try:
+            asset_class_name = asset.get('assetClass', '')
+            
+            # Find the asset class in the enum and get its table name
+            for asset_class in AssetClass:
+                if asset_class.class_name == asset_class_name:
+                    return asset_class.table_name
+            
+            return 'assets'
+                
+        except Exception:
+            return 'assets'
+    
+    def _get_insert_sql_for_table(self, table_name: str) -> str:
+        """Get INSERT SQL for a specific table"""
         try:
             schema_guide = SchemaGuide()
-            table_schema = schema_guide.get_assets_table_schema()  # Uses default path
+            all_schemas = schema_guide.get_all_table_schemas()
+            
+            # Get schema for the specific table, or use assets schema as fallback
+            table_schema = all_schemas.get(table_name)
+            if not table_schema:
+                # Fallback to assets schema if specific table schema not found
+                table_schema = schema_guide.get_assets_table_schema()
+            
             column_names = [col['column_name'] for col in table_schema['columns']]
             placeholders = ', '.join(['?' for _ in column_names])
-            return f"INSERT INTO assets ({', '.join(column_names)}) VALUES ({placeholders})"
+            return f"INSERT INTO {table_name} ({', '.join(column_names)}) VALUES ({placeholders})"
         except Exception as e:
-            print(f"⚠️ Error getting insert SQL: {e}")
             raise e
     
     def _insert_chunk_data_into_main_db(self, chunk_data: List[tuple]) -> None:
         """
-        Insert processed chunk data into the main database.
+        Insert processed chunk data into the main database using multi-table routing.
         
         Args:
             chunk_data: List of data tuples to insert
@@ -823,19 +924,37 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         if not chunk_data:
             return
         
-        # Get dynamic schema for INSERT statement
+        # Convert tuples back to asset dictionaries for table routing
+        # This is needed because multiprocessing workers return tuples, but we need dicts for routing
         try:
-            insert_sql = self._get_insert_sql()
+            schema_guide = SchemaGuide()
+            # Use the first available table schema for column mapping
+            all_schemas = schema_guide.get_all_table_schemas()
+            if not all_schemas:
+                return
+            
+            # Use the first table's schema for column mapping
+            first_table_name = list(all_schemas.keys())[0]
+            table_schema = all_schemas[first_table_name]
+            column_names = [col['column_name'] for col in table_schema['columns']]
+            
+            
+            # Convert tuples back to asset dictionaries
+            asset_dicts = []
+            for tuple_data in chunk_data:
+                asset_dict = dict(zip(column_names, tuple_data))
+                asset_dicts.append(asset_dict)
+            
+            
+            # Use the multi-table routing logic
+            self._insert_asset_batch_optimized(asset_dicts)
+            
         except Exception as e:
-            print(f"⚠️ Error getting insert SQL: {e}")
             return
-        
-        # Insert chunk data using executemany
-        self.conn.executemany(insert_sql, chunk_data)
     
     def _insert_asset_batch_optimized(self, asset_batch: List[Dict[str, Any]]) -> None:
         """
-        Insert a batch of assets into DuckDB using optimized insertion.
+        Insert a batch of assets into DuckDB using optimized insertion with table routing.
         
         Args:
             asset_batch: List of asset dictionaries to insert
@@ -843,17 +962,31 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         if not asset_batch:
             return
         
-        # Convert to list of tuples for insertion using dynamic schema
-        data_tuples = self._create_data_tuples(asset_batch)
+        # Group assets by table name
+        assets_by_table = {}
+        for asset in asset_batch:
+            table_name = self._get_table_name_for_asset(asset)
+            if table_name not in assets_by_table:
+                assets_by_table[table_name] = []
+            assets_by_table[table_name].append(asset)
         
-        # Use executemany for efficient batch insertion with dynamic schema
-        try:
-            insert_sql = self._get_insert_sql()
-        except Exception as e:
-            print(f"⚠️ Error getting insert SQL: {e}")
-            return
-        
-        self.conn.executemany(insert_sql, data_tuples)
+        # Insert assets into their respective tables
+        for table_name, table_assets in assets_by_table.items():
+            if not table_assets:
+                continue
+                
+            try:
+                # Get INSERT SQL for this table
+                insert_sql = self._get_insert_sql_for_table(table_name)
+                
+                # Convert assets to tuples using static method for processed assets
+                data_tuples = SonicMemoryDuckdb._create_data_tuples_static(table_assets)
+                
+                # Insert into the specific table
+                self.conn.executemany(insert_sql, data_tuples)
+                
+            except Exception as e:
+                continue
     
     def _load_assets_into_duckdb_copy_from(self, assets: List[Dict[str, Any]]) -> None:
         """
@@ -870,7 +1003,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         self._verify_database_records_before_loading()
         
         # Create assets table using dynamic schema
-        self._create_assets_table(self.conn)
+        self._create_all_tables(self.conn)
         
         # Convert to DataFrame for COPY FROM
         import pandas as pd
@@ -881,10 +1014,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         self.conn.execute("COPY assets FROM df")
         
         # Create indexes for better query performance
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_id ON assets(id)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_parent_cloud ON assets(parent_cloud)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_cloud ON assets(cloud)")
-        self.conn.execute("CREATE INDEX IF NOT EXISTS idx_assets_team ON assets(team)")
+        self._create_indexes_on_all_tables()
         
         # Verify database records after loading
         self._verify_database_records()
@@ -900,13 +1030,12 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             return
         
         # Convert to list of tuples for insertion using dynamic schema
-        data_tuples = self._create_data_tuples(asset_chunk)
+        data_tuples = SonicMemoryDuckdb._create_data_tuples_static(asset_chunk)
         
         # Insert chunk using executemany for better performance with dynamic schema
         try:
             insert_sql = self._get_insert_sql()
         except Exception as e:
-            print(f"⚠️ Error getting insert SQL: {e}")
             return
         
         self.conn.executemany(insert_sql, data_tuples)
@@ -931,8 +1060,20 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         
         # Add database stats
         try:
-            result = self.conn.execute("SELECT COUNT(*) as total FROM assets").fetchone()
-            stats['total_assets'] = result[0] if result else 0
+            # Get total assets across all tables
+            table_names = AssetClass.get_all_table_names()
+            
+            total_assets = 0
+            for table_name in table_names:
+                try:
+                    result = self.conn.execute(f"SELECT COUNT(*) as total FROM {table_name}").fetchone()
+                    if result:
+                        total_assets += result[0]
+                except Exception:
+                    # Table doesn't exist, skip
+                    continue
+            
+            stats['total_assets'] = total_assets
         except:
             stats['total_assets'] = 0
         
@@ -994,18 +1135,33 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             object_count = 0
             
             try:
-                # Check if assets table exists (DuckDB uses information_schema)
-                table_check = self.conn.execute("SELECT table_name FROM information_schema.tables WHERE table_name='assets'").fetchone()
-                if not table_check:
-                    result['error'] = "Assets table not found in Sonic database"
+                # Check if any tables exist (multi-table schema)
+                table_names = AssetClass.get_all_table_names()
+                
+                existing_tables = []
+                total_objects = 0
+                
+                for table_name in table_names:
+                    try:
+                        # Check if table exists
+                        table_check = self.conn.execute(f"SELECT table_name FROM information_schema.tables WHERE table_name='{table_name}'").fetchone()
+                        if table_check:
+                            existing_tables.append(table_name)
+                            # Get object count for this table
+                            count_result = self.conn.execute(f"SELECT COUNT(*) as total FROM {table_name}").fetchone()
+                            table_count = count_result[0] if count_result else 0
+                            total_objects += table_count
+                            health_queries.append(f"✅ Table '{table_name}' exists with {table_count} records")
+                    except Exception as e:
+                        # Table doesn't exist, skip
+                        continue
+                
+                if not existing_tables:
+                    result['error'] = "No asset tables found in Sonic database"
                     return result
                 
-                table_count = 1
-                health_queries.append("✅ Assets table exists")
-                
-                # Get object count
-                count_result = self.conn.execute("SELECT COUNT(*) as total FROM assets").fetchone()
-                object_count = count_result[0] if count_result else 0
+                table_count = len(existing_tables)
+                object_count = total_objects
                 
                 if object_count == 0:
                     result['error'] = "Sonic database is empty - no assets found"

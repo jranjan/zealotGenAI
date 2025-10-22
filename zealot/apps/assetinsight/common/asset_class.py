@@ -17,18 +17,18 @@ class AssetClass(Enum):
     """
     
     # Scan Entity
-    SERVER = ("server", "Server")
-    NETWORK_DEVICE = ("network_device", "Network Device")
-    RDS = ("aws_rds_instance", "RDS")
-    AWS_EC2 = ("aws_ec2_instance", "AWS EC2")
+    SERVER = ("server", "Server", "servers")
+    NETWORK_DEVICE = ("network_device", "Network Device", "network_device")
+    RDS = ("aws_rds_instance", "RDS", "rds")
+    AWS_EC2 = ("aws_ec2_instance", "AWS EC2", "ec2")
     
     # AWS Services
-    AWS_ACCOUNT = ("aws_account", "AWS Account")
-    AWS_EKS_CLUSTER = ("aws_eks_cluster", "AWS EKS")
-    AWS_SQS = ("aws_sqs", "AWS SQS")
+    AWS_ACCOUNT = ("aws_account", "AWS Account", "aws_accounts")
+    AWS_EKS_CLUSTER = ("aws_eks_cluster", "AWS EKS", "containers")
+    AWS_SQS = ("aws_sqs", "AWS SQS", "aws_services")
     
     # Application Services
-    SERVICE = ("service", "Service")
+    SERVICE = ("service", "Service", "services")
     
     def __str__(self) -> str:
         """
@@ -58,6 +58,16 @@ class AssetClass(Enum):
             The user-friendly display name
         """
         return self.value[1]
+    
+    @property
+    def table_name(self) -> str:
+        """
+        Get the database table name (third element of the tuple).
+        
+        Returns:
+            The database table name
+        """
+        return self.value[2]
     
     @classmethod
     def from_string(cls, value: str) -> 'AssetClass':
@@ -117,3 +127,26 @@ class AssetClass(Enum):
             The user-friendly display name
         """
         return self.value[1]
+    
+    @classmethod
+    def get_all_table_names(cls) -> list[str]:
+        """
+        Get all table names from the enum.
+        
+        Returns:
+            List of all table names
+        """
+        return list(set(asset_class.table_name for asset_class in cls))
+    
+    @classmethod
+    def get_asset_classes_for_table(cls, table_name: str) -> list[str]:
+        """
+        Get all asset class names that map to a specific table.
+        
+        Args:
+            table_name: The table name to search for
+            
+        Returns:
+            List of asset class names that map to the table
+        """
+        return [asset_class.class_name for asset_class in cls if asset_class.table_name == table_name]

@@ -86,7 +86,7 @@ class SchemaAnalyser(Analyser):
         try:
             # Use factory to create reader
             from database.duckdb import DatabaseFactory, DatabaseType
-            reader = DatabaseFactory.create_reader(DatabaseType.BASIC, source_directory)
+            reader = DatabaseFactory.create_reader(DatabaseType.SONIC, source_directory)
             tables_result = reader.execute_query("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'")
             tables = [row['table_name'] for row in tables_result] if tables_result else []
             
@@ -110,7 +110,7 @@ class SchemaAnalyser(Analyser):
         try:
             # Use factory to create reader
             from database.duckdb import DatabaseFactory, DatabaseType
-            reader = DatabaseFactory.create_reader(DatabaseType.BASIC, source_directory)
+            reader = DatabaseFactory.create_reader(DatabaseType.SONIC, source_directory)
             
             metadata_query = f"""
                 SELECT 
@@ -148,7 +148,7 @@ class SchemaAnalyser(Analyser):
         try:
             # Use factory to create reader
             from database.duckdb import DatabaseFactory, DatabaseType
-            reader = DatabaseFactory.create_reader(DatabaseType.BASIC, source_directory)
+            reader = DatabaseFactory.create_reader(DatabaseType.SONIC, source_directory)
             
             sample_query = f"SELECT * FROM \"{table_name}\" LIMIT {limit}"
             sample_data = reader.execute_query(sample_query)

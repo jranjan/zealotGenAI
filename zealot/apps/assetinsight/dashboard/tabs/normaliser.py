@@ -143,6 +143,9 @@ class NormaliserTab(BaseTab):
             return
         
         try:
+            import time
+            start_time = time.time()
+            
             # Create a progress container for better feedback
             progress_container = st.container()
             with progress_container:
@@ -169,6 +172,9 @@ class NormaliserTab(BaseTab):
                     status_text.text("✅ Normalisation complete!")
                     progress_bar.progress(1.0)
                     
+                    # Calculate processing time
+                    processing_time = time.time() - start_time
+                    
                     # Update session state with normalisation results only (no database)
                     st.session_state.update({
                         'normalised_data': {
@@ -177,12 +183,17 @@ class NormaliserTab(BaseTab):
                             'successful': result['successful'],
                             'failed': result['failed'],
                             'files': result.get('files', []),
+                            'processing_time': processing_time,  # Store processing time
                             'database_ready': False  # Database will be created in Load tab
                         },
                         'normaliser_complete': True
                     })
                     
+                    print(f"⏱️ Normalise processing time = {processing_time:.2f} sec")
+                    
+                    # Display processing time prominently in the tab
                     self._render_success_message("Data normalisation complete! Proceed to the Load tab to create the database.")
+                    st.info(f"⏱️ **Processing time = {processing_time:.2f} sec**")
                     st.rerun()
                     
         except Exception as e:
@@ -201,12 +212,16 @@ class NormaliserTab(BaseTab):
         # Calculate total assets from files (database not created in Transform tab)
         total_assets = sum(file_info.get('source_assets', 0) for file_info in normalised_data.get('files', []))
         
+        # Get processing time if available
+        processing_time = normalised_data.get('processing_time', 0)
+        
         metrics = {
             "📁 Files Processed": normalised_data['total_files'],
             "✅ Successful": normalised_data['successful'],
             "❌ Failed": normalised_data['failed'],
             "📊 Total Assets": f"{total_assets:,}",
-            "📈 Success Rate": f"{success_rate:.1f}%"
+            "📈 Success Rate": f"{success_rate:.1f}%",
+            "⏱️ Processing Time": f"{processing_time:.2f} sec"
         }
         self._render_metrics(metrics)
         

@@ -26,7 +26,7 @@ class Analyser(ABC):
         from database.duckdb import DatabaseFactory, DatabaseType
         
         # Use factory to create reader
-        self.reader = DatabaseFactory.create_reader(DatabaseType.BASIC, source_directory)
+        self.reader = DatabaseFactory.create_reader(DatabaseType.SONIC, source_directory)
     
     def close_reader(self) -> None:
         """Close the reader and clean up resources."""
