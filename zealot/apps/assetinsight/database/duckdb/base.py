@@ -53,6 +53,43 @@ class Reader(ABC):
             print(f"⚠️ Error creating table from schema: {e}")
             raise e
     
+    def _create_all_tables(self, conn):
+        """Create all tables defined in the schema configuration"""
+        try:
+            # Get all table schemas from assets.yaml
+            all_schemas = self._get_all_schemas()
+            
+            if not all_schemas:
+                # Fallback to single assets table if no multi-table schema
+                self._create_assets_table(conn)
+                return
+            
+            # Create each table defined in the schema
+            for table_name, table_schema in all_schemas.items():
+                columns = []
+                for col in table_schema['columns']:
+                    col_name = col['column_name']
+                    col_type = col['data_type']
+                    columns.append(f"{col_name} {col_type}")
+                
+                create_sql = f"CREATE TABLE IF NOT EXISTS {table_name} ({', '.join(columns)})"
+                print(f"📋 Creating table '{table_name}' with {len(columns)} columns...")
+                conn.execute(create_sql)
+                print(f"✅ Table '{table_name}' ensured")
+            
+        except Exception as e:
+            print(f"⚠️ Error creating tables from schema: {e}")
+            raise e
+    
+    def _get_all_schemas(self):
+        """Get all table schemas from SchemaGuide"""
+        try:
+            schema_guide = SchemaGuide()
+            return schema_guide.get_all_table_schemas()
+        except Exception as e:
+            print(f"⚠️ Error loading all schemas: {e}")
+            return {}
+    
     def _reconstruct_nested_json(self, asset: dict, prefix: str) -> str:
         """
         Reconstruct nested JSON object from flattened fields with given prefix.

@@ -1,5 +1,5 @@
 assets:
-  common:
+  metadata:
     # Basic asset fields
     id: VARCHAR
     name: VARCHAR
@@ -27,4 +27,44 @@ assets:
     properties: JSON
     tags: JSON
     raw_data: JSON
-    
+
+# Database specification
+
+common_fields:
+  # Basic asset fields
+  id: VARCHAR
+  name: VARCHAR
+  identifier: VARCHAR
+  createdDate: VARCHAR
+  lastModifiedDate: VARCHAR
+  assetClass: VARCHAR
+  startDate: VARCHAR
+  endDate: VARCHAR
+  lastSeenDate: VARCHAR
+  status: VARCHAR
+  accountId: VARCHAR
+  deleted: VARCHAR
+  # Flattened ownership fields
+  parent_cloud: VARCHAR
+  parent_cloud_id: VARCHAR
+  parent_cloud_owner_email: VARCHAR
+  cloud: VARCHAR
+  cloud_id: VARCHAR
+  cloud_owner_email: VARCHAR
+  team: VARCHAR
+  team_id: VARCHAR
+  team_owner_email: VARCHAR
+  # JSON fields
+  properties: JSON
+  tags: JSON
+  raw_data: JSON
+
+tables:
+  ec2:
+  containers:
+  network_device:
+  servers:
+  rds:
+  aws_accounts:
+  aws_services:
+  services:

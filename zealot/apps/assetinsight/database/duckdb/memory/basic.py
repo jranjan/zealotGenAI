@@ -9,6 +9,7 @@ from typing import Dict, Any, List
 import tempfile
 import os
 from ..base import Reader
+from common.asset_class import AssetClass
 
 
 class BasicMemoryDuckdb(Reader):
@@ -153,15 +154,27 @@ class BasicMemoryDuckdb(Reader):
             conn.close()
     
     def get_total_objects(self) -> int:
-        """Get total number of assets in the database"""
+        """Get total number of assets across all tables"""
         # Create new connection for this query to avoid connection issues
         if not self.db_path or not os.path.exists(self.db_path):
             return 0
         
         conn = duckdb.connect(str(self.db_path))
         try:
-            result = conn.execute("SELECT COUNT(*) as count FROM assets").fetchone()
-            return result[0] if result else 0
+            # Get all table names from the mapping
+            table_names = AssetClass.get_all_table_names()
+            
+            total_count = 0
+            for table_name in table_names:
+                try:
+                    result = conn.execute(f"SELECT COUNT(*) as count FROM {table_name}").fetchone()
+                    if result:
+                        total_count += result[0]
+                except Exception:
+                    # Table doesn't exist, skip
+                    continue
+            
+            return total_count
         finally:
             conn.close()
     
@@ -355,28 +368,45 @@ class BasicMemoryDuckdb(Reader):
             conn = duckdb.connect(str(self.db_path))
             
             try:
-                # Get basic stats
+                # Get basic stats across all tables
                 print("📊 Querying total assets...")
-                result = conn.execute("SELECT COUNT(*) as total_assets FROM assets").fetchone()
-                total_assets = result[0] if result else 0
-                print(f"📊 Found {total_assets} total assets")
+                table_names = AssetClass.get_all_table_names()
+                table_names.append('assets')  # Include fallback table
+                
+                total_assets = 0
+                asset_classes = set()
+                
+                for table_name in table_names:
+                    try:
+                        result = conn.execute(f"SELECT COUNT(*) as total_assets FROM {table_name}").fetchone()
+                        if result:
+                            total_assets += result[0]
+                        
+                        # Get distinct asset classes from this table
+                        class_result = conn.execute(f"SELECT DISTINCT assetClass FROM {table_name} WHERE assetClass IS NOT NULL").fetchall()
+                        for row in class_result:
+                            asset_classes.add(row[0])
+                    except Exception:
+                        # Table doesn't exist, skip
+                        continue
+                
+                print(f"📊 Found {total_assets} total assets across {len(table_names)} tables")
                 
                 # Get file count - BasicMemoryDuckdb doesn't track source_file, so estimate from folder
                 json_files = list(self.folder_path.glob("*.json"))
                 total_files = len(json_files)
                 print(f"📁 Found {total_files} JSON files in folder")
                 
-                # Get asset classes
+                # Get asset classes count
                 print("📊 Querying asset classes...")
-                result = conn.execute("SELECT COUNT(DISTINCT assetClass) as asset_classes FROM assets").fetchone()
-                asset_classes = result[0] if result else 0
-                print(f"📊 Found {asset_classes} asset classes")
+                asset_classes_count = len(asset_classes)
+                print(f"📊 Found {asset_classes_count} asset classes")
                 
                 return {
                     'status': 'connected',
                     'total_files': total_files,
                     'total_assets': total_assets,
-                    'asset_classes': asset_classes,
+                    'asset_classes': asset_classes_count,
                     'health_status': 'Healthy' if total_assets > 0 else 'Empty'
                 }
             finally:
@@ -394,3 +424,29 @@ class BasicMemoryDuckdb(Reader):
                 'asset_classes': 0,
                 'health_status': 'Error'
             }
+    
+    def _create_indexes_on_all_tables(self) -> None:
+        """Create indexes on all tables for better query performance."""
+        try:
+            # Get all table names from the mapping
+            table_names = AssetClass.get_all_table_names()
+            
+            # Create indexes on each table
+            for table_name in table_names:
+                try:
+                    # Check if table exists before creating indexes
+                    result = self.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                    if result and result[0] > 0:  # Table exists and has data
+                        print(f"📊 Creating indexes on table '{table_name}'...")
+                        self.conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_id ON {table_name}(id)")
+                        self.conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_parent_cloud ON {table_name}(parent_cloud)")
+                        self.conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_cloud ON {table_name}(cloud)")
+                        self.conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table_name}_team ON {table_name}(team)")
+                        print(f"✅ Indexes created on table '{table_name}'")
+                except Exception as e:
+                    # Table doesn't exist or has no data, skip indexing
+                    print(f"⚠️ Skipping indexes for table '{table_name}': {e}")
+                    continue
+                    
+        except Exception as e:
+            print(f"⚠️ Error creating indexes: {e}")

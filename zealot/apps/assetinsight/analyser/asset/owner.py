@@ -7,6 +7,7 @@ aspects of asset data using DuckDB for efficient querying.
 
 from typing import Any, Dict, List
 from .asset import AssetAnalyser
+from common.asset_class import AssetClass
 
 
 class OwnerAnalyser(AssetAnalyser):
@@ -20,6 +21,24 @@ class OwnerAnalyser(AssetAnalyser):
     def __init__(self):
         """Initialize the owner analyser."""
         super().__init__("owner")
+    
+    def _create_union_query(self, base_query: str) -> str:
+        """Create a UNION query across all asset tables"""
+        table_names = AssetClass.get_all_table_names()
+        
+        print(f"🔍 Creating UNION query across tables: {table_names}")
+        
+        # Create UNION query for each table
+        union_parts = []
+        for table_name in table_names:
+            # Replace 'FROM assets' with 'FROM {table_name}' in the query
+            table_query = base_query.replace('FROM assets', f'FROM {table_name}')
+            union_parts.append(f"({table_query})")
+        
+        union_query = " UNION ALL ".join(union_parts)
+        print(f"🔍 Generated UNION query: {union_query[:200]}...")  # Show first 200 chars
+        
+        return union_query
     
     def analyse(self, source_directory: str, result_directory: str) -> Dict[str, Any]:
         """
@@ -98,12 +117,19 @@ class OwnerAnalyser(AssetAnalyser):
             raise ValueError("Reader not initialized. Call create_reader() first.")
         
         try:
-            # First, let's check what columns are available in the assets table
-            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            # First, let's check what columns are available in the first available table
+            table_names = AssetClass.get_all_table_names()
+            if not table_names:
+                return {"error": "No asset tables found"}
+            
+            # Use the first table to get column info
+            first_table = table_names[0]
+            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
-            # Get total assets
-            total_assets_result = self.reader.execute_query("SELECT COUNT(*) as total FROM assets")
+            # Get total assets using UNION across all tables
+            total_assets_query = self._create_union_query("SELECT COUNT(*) as total FROM assets")
+            total_assets_result = self.reader.execute_query(total_assets_query)
             total_assets = total_assets_result[0]['total'] if total_assets_result else 0
             
             # Check for flattened attribution fields
@@ -217,8 +243,13 @@ class OwnerAnalyser(AssetAnalyser):
             raise ValueError("Reader not initialized. Call create_reader() first.")
         
         try:
-            # First, let's check what columns are available in the assets table
-            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            # First, let's check what columns are available in the first available table
+            table_names = AssetClass.get_all_table_names()
+            if not table_names:
+                return []
+            
+            first_table = table_names[0]
+            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
             # Find the parent cloud field
@@ -228,10 +259,15 @@ class OwnerAnalyser(AssetAnalyser):
                     parent_cloud_field = col
                     break
             
+            print(f"🔍 Available columns: {available_columns}")
+            print(f"🔍 Looking for parent cloud field, found: {parent_cloud_field}")
+            
             if not parent_cloud_field:
+                print("⚠️ No parent cloud field found in available columns")
                 return []
             
-            distribution_query = f"""
+            # Create UNION query across all tables
+            distribution_query = self._create_union_query(f"""
                 SELECT 
                     COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie') as parent_cloud,
                     COUNT(*) as total_assets,
@@ -242,12 +278,16 @@ class OwnerAnalyser(AssetAnalyser):
                 FROM assets 
                 GROUP BY COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie')
                 ORDER BY total_assets DESC
-            """
+            """)
             
             try:
-                return self.reader.execute_query(distribution_query)
+                print(f"🔍 Executing parent cloud distribution query...")
+                result = self.reader.execute_query(distribution_query)
+                print(f"🔍 Query result: {len(result) if result else 0} rows returned")
+                return result
             except Exception as e:
                 # If query fails, return empty list to avoid updating metrics
+                print(f"⚠️ Parent cloud distribution query failed: {e}")
                 return []
             
         except Exception as e:
@@ -267,8 +307,13 @@ class OwnerAnalyser(AssetAnalyser):
             raise ValueError("Reader not initialized. Call create_reader() first.")
         
         try:
-            # First, let's check what columns are available in the assets table
-            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            # First, let's check what columns are available in the first available table
+            table_names = AssetClass.get_all_table_names()
+            if not table_names:
+                return []
+            
+            first_table = table_names[0]
+            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
             # Find the cloud field
@@ -281,7 +326,8 @@ class OwnerAnalyser(AssetAnalyser):
             if not cloud_field:
                 return []
             
-            distribution_query = f"""
+            # Create UNION query across all tables
+            distribution_query = self._create_union_query(f"""
                 SELECT 
                     COALESCE(NULLIF("{cloud_field}", ''), 'Zombie') as cloud,
                     COUNT(*) as total_assets,
@@ -292,7 +338,7 @@ class OwnerAnalyser(AssetAnalyser):
                 FROM assets 
                 GROUP BY COALESCE(NULLIF("{cloud_field}", ''), 'Zombie')
                 ORDER BY total_assets DESC
-            """
+            """)
             
             try:
                 return self.reader.execute_query(distribution_query)
@@ -317,8 +363,13 @@ class OwnerAnalyser(AssetAnalyser):
             raise ValueError("Reader not initialized. Call create_reader() first.")
         
         try:
-            # First, let's check what columns are available in the assets table
-            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            # First, let's check what columns are available in the first available table
+            table_names = AssetClass.get_all_table_names()
+            if not table_names:
+                return []
+            
+            first_table = table_names[0]
+            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
             # Find the team field
@@ -331,7 +382,8 @@ class OwnerAnalyser(AssetAnalyser):
             if not team_field:
                 return []
             
-            distribution_query = f"""
+            # Create UNION query across all tables
+            distribution_query = self._create_union_query(f"""
                 SELECT 
                     COALESCE(NULLIF("{team_field}", ''), 'Zombie') as team,
                     COUNT(*) as total_assets,
@@ -342,7 +394,7 @@ class OwnerAnalyser(AssetAnalyser):
                 FROM assets 
                 GROUP BY COALESCE(NULLIF("{team_field}", ''), 'Zombie')
                 ORDER BY total_assets DESC
-            """
+            """)
             
             try:
                 return self.reader.execute_query(distribution_query)
@@ -367,8 +419,13 @@ class OwnerAnalyser(AssetAnalyser):
             raise ValueError("Reader not initialized. Call create_reader() first.")
         
         try:
-            # First, let's check what columns are available in the assets table
-            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            # First, let's check what columns are available in the first available table
+            table_names = AssetClass.get_all_table_names()
+            if not table_names:
+                return []
+            
+            first_table = table_names[0]
+            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
             # Find the MBU field - look for various possible field names
@@ -378,29 +435,42 @@ class OwnerAnalyser(AssetAnalyser):
                     mbu_field = col
                     break
             
+            print(f"🔍 Available columns for MBU analysis: {available_columns}")
+            print(f"🔍 Looking for MBU field, found: {mbu_field}")
+            
             if not mbu_field:
                 # Try to find any field that might contain MBU data
                 potential_mbu_fields = [col for col in available_columns if 'properties' in col.lower()]
+                print(f"🔍 Potential MBU fields: {potential_mbu_fields}")
                 if potential_mbu_fields:
                     mbu_field = potential_mbu_fields[0]
+                    print(f"🔍 Using fallback MBU field: {mbu_field}")
                 else:
+                    print("⚠️ No MBU field found in available columns")
                     return []
             
             # Check if the field is JSON or direct string
-            sample_query = f"SELECT \"{mbu_field}\" FROM assets LIMIT 1"
+            sample_query = self._create_union_query(f"SELECT \"{mbu_field}\" FROM assets LIMIT 1")
             try:
+                print(f"🔍 Executing sample query for field '{mbu_field}'...")
                 sample_result = self.reader.execute_query(sample_query)
+                print(f"🔍 Sample query result: {len(sample_result) if sample_result else 0} rows")
+                
                 if sample_result and sample_result[0][mbu_field]:
                     sample_value = sample_result[0][mbu_field]
                     is_json = isinstance(sample_value, str) and (sample_value.startswith('{') or sample_value.startswith('['))
+                    print(f"🔍 Sample value: {str(sample_value)[:100]}...")
+                    print(f"🔍 Is JSON: {is_json}")
                 else:
                     is_json = False
-            except:
+                    print("🔍 No sample data found or field is empty")
+            except Exception as e:
+                print(f"⚠️ Sample query failed: {e}")
                 is_json = False
             
             if is_json:
                 # Handle JSON field
-                distribution_query = f"""
+                distribution_query = self._create_union_query(f"""
                     SELECT 
                         COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU') as mbu,
                         COUNT(*) as total_assets,
@@ -411,10 +481,10 @@ class OwnerAnalyser(AssetAnalyser):
                     FROM assets 
                     GROUP BY COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU')
                     ORDER BY total_assets DESC
-                """
+                """)
             else:
                 # Handle direct string field
-                distribution_query = f"""
+                distribution_query = self._create_union_query(f"""
                     SELECT 
                         COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
                         COUNT(*) as total_assets,
@@ -425,12 +495,17 @@ class OwnerAnalyser(AssetAnalyser):
                     FROM assets 
                     GROUP BY COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
                     ORDER BY total_assets DESC
-                """
+                """)
             
             try:
-                return self.reader.execute_query(distribution_query)
+                print(f"🔍 Executing MBU distribution query...")
+                print(f"🔍 Field type: {'JSON' if is_json else 'Direct string'}")
+                result = self.reader.execute_query(distribution_query)
+                print(f"🔍 MBU query result: {len(result) if result else 0} rows returned")
+                return result
             except Exception as e:
                 # If query fails, return empty list to avoid updating metrics
+                print(f"⚠️ MBU distribution query failed: {e}")
                 return []
             
         except Exception as e:
@@ -450,8 +525,13 @@ class OwnerAnalyser(AssetAnalyser):
             raise ValueError("Reader not initialized. Call create_reader() first.")
         
         try:
-            # First, let's check what columns are available in the assets table
-            columns_result = self.reader.execute_query("PRAGMA table_info(assets)")
+            # First, let's check what columns are available in the first available table
+            table_names = AssetClass.get_all_table_names()
+            if not table_names:
+                return []
+            
+            first_table = table_names[0]
+            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
             # Find the BU and MBU fields - look for various possible field names
@@ -481,7 +561,7 @@ class OwnerAnalyser(AssetAnalyser):
                     mbu_field = bu_field  # Use BU field as fallback
             
             # Check if the fields are JSON or direct string
-            sample_query = f"SELECT \"{bu_field}\", \"{mbu_field}\" FROM assets LIMIT 1"
+            sample_query = self._create_union_query(f"SELECT \"{bu_field}\", \"{mbu_field}\" FROM assets LIMIT 1")
             try:
                 sample_result = self.reader.execute_query(sample_query)
                 if sample_result:
@@ -498,7 +578,7 @@ class OwnerAnalyser(AssetAnalyser):
             
             if bu_is_json and mbu_is_json:
                 # Handle JSON fields for both BU and MBU
-                distribution_query = f"""
+                distribution_query = self._create_union_query(f"""
                     SELECT 
                         COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU') as bu,
                         COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU') as mbu,
@@ -512,10 +592,10 @@ class OwnerAnalyser(AssetAnalyser):
                         COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU'),
                         COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU')
                     ORDER BY total_assets DESC
-                """
+                """)
             elif bu_is_json:
                 # Handle JSON field for BU, direct string for MBU
-                distribution_query = f"""
+                distribution_query = self._create_union_query(f"""
                     SELECT 
                         COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU') as bu,
                         COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
@@ -529,10 +609,10 @@ class OwnerAnalyser(AssetAnalyser):
                         COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU'),
                         COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
                     ORDER BY total_assets DESC
-                """
+                """)
             else:
                 # Handle direct string fields for both BU and MBU
-                distribution_query = f"""
+                distribution_query = self._create_union_query(f"""
                     SELECT 
                         COALESCE(NULLIF("{bu_field}", ''), 'Unknown BU') as bu,
                         COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
@@ -546,7 +626,7 @@ class OwnerAnalyser(AssetAnalyser):
                         COALESCE(NULLIF("{bu_field}", ''), 'Unknown BU'),
                         COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
                     ORDER BY total_assets DESC
-                """
+                """)
             
             try:
                 return self.reader.execute_query(distribution_query)

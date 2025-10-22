@@ -15,6 +15,7 @@ sys.path.append(str(Path(__file__).parent.parent.parent))
 from dashboard.tabs.base import BaseTab
 from utils.dataframe_utils import safe_dataframe
 from database import DatabaseFactory, DatabaseType
+from common.asset_class import AssetClass
 
 
 class LoadTab(BaseTab):
@@ -144,6 +145,9 @@ class LoadTab(BaseTab):
     def _load_database(self, target_folder: str) -> Dict[str, Any]:
         """Load database from normalized data"""
         try:
+            import time
+            start_time = time.time()
+            
             with st.spinner("🗄️ Setting up database for high performance analytics..."):
                 reader = DatabaseFactory.create_reader(
                     DatabaseType.SONIC,
@@ -184,8 +188,15 @@ class LoadTab(BaseTab):
                     st.session_state['database_ready'] = True
                     st.session_state['database_stats'] = result['stats']
                     st.session_state['database_path'] = target_folder
+                    st.session_state['db_instance'] = reader  # Store the database reader instance
                     
+                    # Calculate and display processing time
+                    processing_time = time.time() - start_time
+                    print(f"⏱️ Load Database processing time = {processing_time:.2f} sec")
+                    
+                    # Display processing time prominently in the tab
                     st.success("✅ Database loaded successfully!")
+                    st.info(f"⏱️ **Processing time = {processing_time:.2f} sec**")
                     
                 else:
                     result = {
@@ -332,6 +343,9 @@ class LoadTab(BaseTab):
             )
             
             if selected_table:
+                # Display table metrics for selected table
+                self._display_selected_table_metrics(target_folder, selected_table)
+                
                 # Get table metadata using SchemaAnalyser
                 try:
                     metadata_result = schema_analyser.get_table_metadata(target_folder, selected_table)
@@ -502,7 +516,10 @@ class LoadTab(BaseTab):
             if readiness_result.get('ready', False):
                 
                 # Query for the specific asset
-                db_query = f"SELECT * FROM assets WHERE id = '{asset_id}'"
+                # Query across all asset tables using UNION
+                table_names = AssetClass.get_all_table_names()
+                union_query = " UNION ALL ".join([f"SELECT * FROM {table_name} WHERE id = '{asset_id}'" for table_name in table_names])
+                db_query = f"SELECT * FROM ({union_query}) LIMIT 1"
                 db_results = reader.execute_query(db_query)
                 
                 if db_results:
@@ -526,6 +543,49 @@ class LoadTab(BaseTab):
         
         except Exception as e:
             st.error(f"❌ Error querying database: {str(e)}")
+    
+    def _display_selected_table_metrics(self, target_folder: str, table_name: str):
+        """Display metrics for the selected table"""
+        st.markdown("---")
+        st.markdown(f"### 📊 Table Metrics: {table_name}")
+        
+        try:
+            reader = DatabaseFactory.create_reader(
+                DatabaseType.SONIC,
+                target_folder,
+                max_workers=multiprocessing.cpu_count(),
+                batch_size=2000,
+                memory_limit_gb=4.0
+            )
+            
+            # Get record count for this table
+            count_result = reader.execute_query(f"SELECT COUNT(*) as count FROM {table_name}")
+            record_count = count_result[0]['count'] if count_result else 0
+            
+            # Get asset class names from the enum that map to this table
+            asset_class_names = AssetClass.get_asset_classes_for_table(table_name)
+            asset_class_display = ', '.join(asset_class_names) if asset_class_names else 'Unknown'
+            
+            metrics_data = {
+                'Metric': ['Table Name', 'Total Records', 'Asset Class Name'],
+                'Value': [table_name, f"{record_count:,}", asset_class_display]
+            }
+            
+            # Display metrics in a table
+            import pandas as pd
+            df_metrics = pd.DataFrame(metrics_data)
+            st.dataframe(
+                df_metrics,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Metric": st.column_config.TextColumn("Metric", width="medium"),
+                    "Value": st.column_config.TextColumn("Value", width="medium")
+                }
+            )
+                        
+        except Exception as e:
+            st.error(f"❌ Error getting table metrics for '{table_name}': {str(e)}")
     
     def is_complete(self, workflow_state):
         """Check if database loading is complete"""

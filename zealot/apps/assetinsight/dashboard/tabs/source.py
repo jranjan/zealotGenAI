@@ -142,6 +142,9 @@ class SourceTab(BaseTab):
             return
         
         try:
+            import time
+            start_time = time.time()
+            
             with st.spinner("🔍 Analyzing source data..."):
                 full_path = os.path.join(self.source_folder, self.asset_class)
                 source_data = self.source_reader.scan_source_directory(full_path)
@@ -150,7 +153,13 @@ class SourceTab(BaseTab):
                 st.session_state.source_data = source_data
                 st.session_state.selected_asset_class = self.asset_class
                 
+                # Calculate and display processing time
+                processing_time = time.time() - start_time
+                print(f"⏱️ Analyze Source processing time = {processing_time:.2f} sec")
+                
+                # Display processing time prominently in the tab
                 st.success(f"✅ Analysis complete for {self.asset_class}!")
+                st.info(f"⏱️ **Processing time = {processing_time:.2f} sec**")
                 
         except Exception as e:
             st.error(f"❌ Error analyzing source: {str(e)}")
