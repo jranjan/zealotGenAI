@@ -80,6 +80,7 @@ class ScanTab(BaseTab):
         table_names = AssetClass.get_all_table_names()
         
         # Debug: Print number of tables being queried
+        print(f"🔍 Scan Tab: AssetClass.get_all_table_names() returned: {table_names}")
         print(f"🔍 Scan Tab: Querying across {len(table_names)} tables: {', '.join(table_names)}")
         
         # Create UNION query for each table
@@ -89,7 +90,9 @@ class ScanTab(BaseTab):
             table_query = base_query.replace('FROM assets', f'FROM {table_name}')
             union_parts.append(f"({table_query})")
         
-        return " UNION ALL ".join(union_parts)
+        union_query = " UNION ALL ".join(union_parts)
+        print(f"🔍 Generated UNION query: {union_query[:200]}...")
+        return union_query
     
     def _get_scan_data(self) -> Optional[Dict[str, Any]]:
         """Get scan data from the database"""
@@ -108,57 +111,96 @@ class ScanTab(BaseTab):
                 table_names = [table[0] for table in tables_result] if tables_result else []
                 print(f"📋 Available tables: {table_names}")
                 
-                # Check if we have any data in the first table
-                if table_names:
-                    first_table = table_names[0]
-                    count_result = db_instance.conn.execute(f"SELECT COUNT(*) FROM {first_table}").fetchone()
-                    total_records = count_result[0] if count_result else 0
-                    print(f"📊 Total records in {first_table}: {total_records}")
-                    
-                    # Check what columns are available
-                    columns_result = db_instance.conn.execute(f"PRAGMA table_info({first_table})").fetchall()
-                    column_names = [col[1] for col in columns_result] if columns_result else []
-                    print(f"📝 Available columns in {first_table}: {column_names}")
+                # Check if we have any data in each table
+                total_records_all_tables = 0
+                for table_name in table_names:
+                    try:
+                        count_result = db_instance.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                        record_count = count_result[0] if count_result else 0
+                        total_records_all_tables += record_count
+                        print(f"📊 Records in {table_name}: {record_count}")
+                        
+                        if record_count > 0:
+                            # Check what columns are available
+                            columns_result = db_instance.conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+                            column_names = [col[1] for col in columns_result] if columns_result else []
+                            print(f"📝 Columns in {table_name}: {column_names}")
+                    except Exception as table_error:
+                        print(f"❌ Error checking table {table_name}: {table_error}")
+                
+                print(f"📊 Total records across all tables: {total_records_all_tables}")
+                
             except Exception as e:
                 print(f"❌ Error checking database structure: {e}")
             
-            # Query scan-related data
+            # Test the UNION query with a simple count first
+            try:
+                test_union_query = self._create_union_query("SELECT COUNT(*) as count FROM assets")
+                print(f"🧪 Testing UNION query: {test_union_query}")
+                test_result = db_instance.conn.execute(test_union_query).fetchall()
+                print(f"🧪 UNION query result: {test_result}")
+            except Exception as test_error:
+                print(f"❌ UNION query test failed: {test_error}")
+                
+                # Fallback: Query each table individually and sum results
+                print("🔄 Falling back to individual table queries...")
+                total_count = 0
+                fallback_table_names = AssetClass.get_all_table_names()
+                for table_name in fallback_table_names:
+                    try:
+                        count_result = db_instance.conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()
+                        table_count = count_result[0] if count_result else 0
+                        total_count += table_count
+                        print(f"📊 {table_name}: {table_count} records")
+                    except Exception as table_error:
+                        print(f"❌ Error querying {table_name}: {table_error}")
+                print(f"📊 Total count from individual queries: {total_count}")
+            
+            # Query scan-related data using lastSeenDate (scan activity indicator)
             scan_queries = {
                 'total_assets': self._create_union_query("SELECT COUNT(*) as count FROM assets"),
-                'scanned_assets': self._create_union_query("SELECT COUNT(*) as count FROM assets WHERE lastScanned IS NOT NULL"),
+                'scanned_assets': self._create_union_query("SELECT COUNT(*) as count FROM assets WHERE lastSeenDate IS NOT NULL"),
                 'scan_coverage_by_team': self._create_union_query("""
                     SELECT team, 
                            COUNT(*) as total_assets,
-                           COUNT(CASE WHEN lastScanned IS NOT NULL THEN 1 END) as scanned_assets,
-                           ROUND(COUNT(CASE WHEN lastScanned IS NOT NULL THEN 1 END) * 100.0 / COUNT(*), 2) as coverage_pct
+                           COUNT(CASE WHEN lastSeenDate IS NOT NULL THEN 1 END) as scanned_assets,
+                           ROUND(COUNT(CASE WHEN lastSeenDate IS NOT NULL THEN 1 END) * 100.0 / COUNT(*), 2) as coverage_pct
                     FROM assets 
                     GROUP BY team 
                     ORDER BY coverage_pct DESC
                 """),
-                'scan_coverage_by_cloud': """
+                'scan_coverage_by_cloud': self._create_union_query("""
                     SELECT cloud, 
                            COUNT(*) as total_assets,
-                           COUNT(CASE WHEN lastScanned IS NOT NULL THEN 1 END) as scanned_assets,
-                           ROUND(COUNT(CASE WHEN lastScanned IS NOT NULL THEN 1 END) * 100.0 / COUNT(*), 2) as coverage_pct
+                           COUNT(CASE WHEN lastSeenDate IS NOT NULL THEN 1 END) as scanned_assets,
+                           ROUND(COUNT(CASE WHEN lastSeenDate IS NOT NULL THEN 1 END) * 100.0 / COUNT(*), 2) as coverage_pct
                     FROM assets 
                     GROUP BY cloud 
                     ORDER BY coverage_pct DESC
-                """,
-                'recent_scans': """
-                    SELECT lastScanned, COUNT(*) as scan_count
+                """),
+                'recent_scans': self._create_union_query("""
+                    SELECT lastSeenDate, COUNT(*) as scan_count
                     FROM assets 
-                    WHERE lastScanned IS NOT NULL 
-                    GROUP BY lastScanned 
-                    ORDER BY lastScanned DESC 
+                    WHERE lastSeenDate IS NOT NULL 
+                    GROUP BY lastSeenDate 
+                    ORDER BY lastSeenDate DESC 
                     LIMIT 30
-                """,
-                'missing_scans': """
+                """),
+                'missing_scans': self._create_union_query("""
                     SELECT id, name, team, cloud, assetClass
                     FROM assets 
-                    WHERE lastScanned IS NULL 
+                    WHERE lastSeenDate IS NULL 
                     ORDER BY team, cloud
                     LIMIT 100
-                """
+                """),
+                'scan_history': self._create_union_query("""
+                    SELECT DATE_TRUNC('day', lastSeenDate) as scan_date, 
+                           COUNT(*) as scanned_assets
+                    FROM assets 
+                    WHERE lastSeenDate IS NOT NULL
+                    GROUP BY scan_date
+                    ORDER BY scan_date
+                """)
             }
             
             results = {}
@@ -197,20 +239,20 @@ class ScanTab(BaseTab):
         st.markdown("### 📊 Scan Coverage Overview")
         
         total_assets = scan_data.get('total_assets', 0) or 0
-        scanned_assets = scan_data.get('scanned_assets', 0) or 0
+        seen_assets = scan_data.get('scanned_assets', 0) or 0
         
         # Ensure values are numbers
         try:
             total_assets = int(total_assets) if total_assets is not None else 0
-            scanned_assets = int(scanned_assets) if scanned_assets is not None else 0
+            seen_assets = int(seen_assets) if seen_assets is not None else 0
         except (ValueError, TypeError):
             total_assets = 0
-            scanned_assets = 0
+            seen_assets = 0
         
-        coverage_pct = (scanned_assets / total_assets * 100) if total_assets > 0 else 0
+        coverage_pct = (seen_assets / total_assets * 100) if total_assets > 0 else 0
         
         # Debug: Show what data we received
-        print(f"🔍 Scan metrics - Total assets: {total_assets}, Scanned assets: {scanned_assets}, Coverage: {coverage_pct:.1f}%")
+        print(f"🔍 Scan metrics - Total assets: {total_assets}, Seen assets: {seen_assets}, Coverage: {coverage_pct:.1f}%")
         
         # Create metrics columns
         col1, col2, col3, col4 = st.columns(4)
@@ -224,24 +266,24 @@ class ScanTab(BaseTab):
         
         with col2:
             st.metric(
-                label="Scanned Assets",
-                value=f"{scanned_assets:,}",
-                help="Number of assets that have been scanned"
+                label="Recently Seen Assets",
+                value=f"{seen_assets:,}",
+                help="Number of assets that have been seen recently"
             )
         
         with col3:
             st.metric(
                 label="Coverage",
                 value=f"{coverage_pct:.1f}%",
-                help="Percentage of assets that have been scanned"
+                help="Percentage of assets that have been seen recently"
             )
         
         with col4:
-            missing_assets = total_assets - scanned_assets
+            missing_assets = total_assets - seen_assets
             st.metric(
-                label="Missing Scans",
+                label="Not Recently Seen",
                 value=f"{missing_assets:,}",
-                help="Number of assets that need to be scanned"
+                help="Number of assets that haven't been seen recently"
             )
         
         # Coverage progress bar
@@ -301,17 +343,17 @@ class ScanTab(BaseTab):
         
         recent_scans = scan_data.get('recent_scans', [])
         if recent_scans:
-            scan_df = pd.DataFrame(recent_scans, columns=['lastScanned', 'scan_count'])
-            scan_df['lastScanned'] = pd.to_datetime(scan_df['lastScanned'])
-            scan_df = scan_df.sort_values('lastScanned')
+            scan_df = pd.DataFrame(recent_scans, columns=['lastSeenDate', 'scan_count'])
+            scan_df['lastSeenDate'] = pd.to_datetime(scan_df['lastSeenDate'])
+            scan_df = scan_df.sort_values('lastSeenDate')
             
             # Create timeline chart
             fig = px.line(
                 scan_df,
-                x='lastScanned',
+                x='lastSeenDate',
                 y='scan_count',
                 title="Scan Activity Over Time",
-                labels={'lastScanned': 'Scan Date', 'scan_count': 'Assets Scanned'}
+                labels={'lastSeenDate': 'Scan Date', 'scan_count': 'Assets Scanned'}
             )
             fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
@@ -354,9 +396,21 @@ class ScanTab(BaseTab):
         """Display scan recommendations"""
         st.markdown("### 💡 Scan Recommendations")
         
-        total_assets = scan_data.get('total_assets', 0)
-        scanned_assets = scan_data.get('scanned_assets', 0)
-        coverage_pct = (scanned_assets / total_assets * 100) if total_assets > 0 else 0
+        total_assets = scan_data.get('total_assets', 0) or 0
+        seen_assets = scan_data.get('scanned_assets', 0) or 0
+        
+        # Ensure values are numbers
+        try:
+            total_assets = int(total_assets) if total_assets is not None else 0
+            seen_assets = int(seen_assets) if seen_assets is not None else 0
+        except (ValueError, TypeError):
+            total_assets = 0
+            seen_assets = 0
+        
+        coverage_pct = (seen_assets / total_assets * 100) if total_assets > 0 else 0
+        
+        # Debug: Show what data we received for recommendations
+        print(f"🔍 Scan recommendations - Total assets: {total_assets}, Seen assets: {seen_assets}, Coverage: {coverage_pct:.1f}%")
         
         recommendations = []
         
