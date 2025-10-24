@@ -71,9 +71,30 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             batch_size: Number of assets to process in each batch
             memory_limit_gb: Memory limit in GB before switching to streaming mode
         """
+        print(f"🚀 SonicMemoryDuckdb.__init__() called with folder: {folder_path}")
+        print(f"⚙️ Max workers: {max_workers}, Batch size: {batch_size}, Memory limit: {memory_limit_gb}GB")
+        
         # Call parent __init__ to set up database connection
         # Sonic-specific attributes are already set in __new__
         super().__init__(folder_path)
+        
+        print(f"✅ SonicMemoryDuckdb initialization complete")
+    
+    def _setup_database(self):
+        """Override parent setup to not load data during initialization"""
+        print("🔧 SonicMemoryDuckdb._setup_database() called")
+        # Use in-memory database for better performance
+        self.db_path = None  # No file path for in-memory database
+        print(f"🗄️ Creating in-memory DuckDB database")
+        try:
+            self.conn = duckdb.connect()  # In-memory connection
+            print(f"✅ In-memory database connection established")
+            print(f"🔗 Connection object: {self.conn}")
+        except Exception as e:
+            print(f"❌ Error creating database connection: {e}")
+            raise
+        # Don't load data here - let check_data_readiness() handle it
+        print(f"✅ Database setup complete (data loading deferred)")
     
     def _load_json_files(self) -> None:
         """
@@ -82,19 +103,23 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         if not self.folder_path or not os.path.exists(self.folder_path):
             raise ValueError(f"Folder does not exist: {self.folder_path}")
         
+        print(f"📁 Loading JSON files from: {self.folder_path}")
         
         # Find all JSON files with size information
         json_files = self._get_file_list_with_sizes()
         if not json_files:
             raise ValueError(f"No JSON files found in {self.folder_path}")
         
+        print(f"📋 Found {len(json_files)} JSON files to process")
         self._total_files = len(json_files)
         self._start_time = time.time()
         
         # Check if we should use streaming mode based on memory
         if self._should_use_streaming_mode(json_files):
+            print("🔄 Using streaming mode for large dataset")
             self._load_files_streaming(json_files)
         else:
+            print("⚡ Using parallel processing mode")
             self._load_files_parallel(json_files)
     
     def _get_file_list_with_sizes(self) -> List[Tuple[Path, int]]:
@@ -116,6 +141,10 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
     
     def _load_files_parallel(self, files_with_sizes: List[Tuple[Path, int]]) -> None:
         """Load files using parallel processing with optimized chunking."""
+        print(f"🔄 Starting parallel file processing...")
+        print(f"📁 Processing files from: {self.folder_path}")
+        print(f"📋 Files to process: {[f.name for f, _ in files_with_sizes]}")
+        
         # Create balanced file chunks based on file sizes
         self._file_chunks = self._create_balanced_chunks(files_with_sizes)
         
@@ -126,6 +155,8 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         completed_chunks = 0
         total_files = len(files_with_sizes)
         start_time = time.time()
+        
+        print(f"📊 Starting parallel processing of {total_files} files...")
         
         with ProcessPoolExecutor(max_workers=self.max_workers) as executor:
             # Submit all chunks for processing
@@ -168,6 +199,7 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
                     pass  # Error processing chunk
         
         # Load all assets into DuckDB using multiprocessing
+        print(f"🔍 Total assets collected: {len(all_assets)}")
         if all_assets:
             print(f"💾 Loading {len(all_assets)} assets into database...")
             # Choose the best method based on data size
@@ -176,6 +208,8 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             else:  # Use shared memory approach for smaller datasets
                 self._load_assets_into_duckdb_parallel(all_assets)
             print(f"✅ Successfully loaded {len(all_assets)} assets into database")
+        else:
+            print("⚠️ No assets collected from files - this might be the issue!")
     
     def _load_files_streaming(self, files_with_sizes: List[Tuple[Path, int]]) -> None:
         """Load files using streaming mode for memory efficiency."""
@@ -534,7 +568,9 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         self._verify_database_records_before_loading()
         
         # Create assets table using dynamic schema
+        print("🏗️ Creating database tables...")
         self._create_all_tables(self.conn)
+        print("✅ Database tables created successfully")
         
         # Split assets into chunks for multiprocessing
         # For large datasets, use more chunks for better parallelism, but align with workers
@@ -886,14 +922,24 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         try:
             asset_class_name = asset.get('assetClass', '')
             
+            # Debug: Print asset class information for troubleshooting
+            if 'rds' in asset_class_name.lower() or 'aws_rds' in asset_class_name.lower():
+                print(f"🔍 RDS Debug - Asset class name: '{asset_class_name}'")
+                print(f"🔍 RDS Debug - Available AssetClass enum values:")
+                for ac in AssetClass:
+                    print(f"  - {ac.class_name} -> {ac.table_name}")
+            
             # Find the asset class in the enum and get its table name
             for asset_class in AssetClass:
                 if asset_class.class_name == asset_class_name:
+                    print(f"✅ Found matching asset class: {asset_class_name} -> {asset_class.table_name}")
                     return asset_class.table_name
             
+            print(f"⚠️ No matching asset class found for: '{asset_class_name}', using 'assets' table")
             return 'assets'
                 
-        except Exception:
+        except Exception as e:
+            print(f"❌ Error in _get_table_name_for_asset: {e}")
             return 'assets'
     
     def _get_insert_sql_for_table(self, table_name: str) -> str:
@@ -1104,6 +1150,9 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
         Returns:
             Dictionary containing readiness status, health info, and object count
         """
+        print("🚀 Starting check_data_readiness for SonicMemoryDuckdb...")
+        print(f"📁 Folder path: {self.folder_path}")
+        
         # Initialize result with default values
         result = {
             'ready': False,
@@ -1117,15 +1166,51 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             'error': None
         }
         
+        print(f"📊 JSON files found: {result['json_files_found']}")
+        print(f"🔗 Database connection exists: {hasattr(self, 'conn') and self.conn is not None}")
+        
         try:
-            # Check if database connection exists
-            if not hasattr(self, 'conn') or not self.conn:
-                # Check if JSON files exist but database not created yet
-                if result['json_files_found'] > 0:
-                    result['error'] = "JSON files found but database not created yet. Please run Transform tab first."
-                    result['health_status'] = 'FILES_ONLY'
+            # Always check if we need to load data, regardless of connection status
+            if result['json_files_found'] > 0:
+                print(f"🔍 Checking if database is empty...")
+                # Check if database is empty (no tables exist)
+                try:
+                    show_tables_result = self.conn.execute("SHOW TABLES").fetchall()
+                    existing_tables = [row[0] for row in show_tables_result] if show_tables_result else []
+                    print(f"🔍 Existing tables: {existing_tables}")
+                except Exception as e:
+                    print(f"❌ Error checking existing tables: {e}")
+                    existing_tables = []
+                
+                if not existing_tables:
+                    print(f"🔍 Found {result['json_files_found']} JSON files but no tables exist, loading data into database...")
+                    try:
+                        # Load JSON files into database
+                        print("🚀 Starting data loading process...")
+                        self._load_json_files()
+                        print("✅ Data loaded successfully into database")
+                        
+                        # Verify tables were created after loading
+                        show_tables_result = self.conn.execute("SHOW TABLES").fetchall()
+                        created_tables = [row[0] for row in show_tables_result] if show_tables_result else []
+                        print(f"🔍 Tables created after loading: {created_tables}")
+                        
+                        if not created_tables:
+                            result['error'] = "No tables were created during data loading"
+                            result['health_status'] = 'ERROR'
+                            return result
+                            
+                    except Exception as e:
+                        print(f"❌ Error during data loading: {str(e)}")
+                        result['error'] = f"Failed to load JSON files: {str(e)}"
+                        result['health_status'] = 'ERROR'
+                        return result
                 else:
-                    result['error'] = "Sonic database connection not initialized"
+                    print(f"🔍 Database already has tables: {existing_tables}")
+            else:
+                print(f"⚠️ No JSON files found in directory")
+                result['error'] = "No JSON files found in directory"
+                result['health_status'] = 'NO_FILES'
                 return result
             
             # Query database health
@@ -1137,23 +1222,33 @@ class SonicMemoryDuckdb(BasicMemoryDuckdb):
             try:
                 # Check if any tables exist (multi-table schema)
                 table_names = AssetClass.get_all_table_names()
+                print(f"🔍 Checking for tables: {table_names}")
                 
                 existing_tables = []
                 total_objects = 0
                 
                 for table_name in table_names:
                     try:
-                        # Check if table exists
-                        table_check = self.conn.execute(f"SELECT table_name FROM information_schema.tables WHERE table_name='{table_name}'").fetchone()
-                        if table_check:
+                        # Check if table exists using DuckDB's SHOW TABLES
+                        show_tables_result = self.conn.execute("SHOW TABLES").fetchall()
+                        existing_table_names = [row[0] for row in show_tables_result] if show_tables_result else []
+                        
+                        # Debug: Show what tables actually exist (only on first iteration)
+                        if table_name == table_names[0]:
+                            print(f"🔍 Tables that actually exist in database: {existing_table_names}")
+                        
+                        if table_name in existing_table_names:
                             existing_tables.append(table_name)
                             # Get object count for this table
                             count_result = self.conn.execute(f"SELECT COUNT(*) as total FROM {table_name}").fetchone()
                             table_count = count_result[0] if count_result else 0
                             total_objects += table_count
                             health_queries.append(f"✅ Table '{table_name}' exists with {table_count} records")
+                        else:
+                            health_queries.append(f"⚠️ Table '{table_name}' not found in database")
                     except Exception as e:
-                        # Table doesn't exist, skip
+                        # Table doesn't exist or error accessing it
+                        health_queries.append(f"❌ Error checking table '{table_name}': {str(e)}")
                         continue
                 
                 if not existing_tables:

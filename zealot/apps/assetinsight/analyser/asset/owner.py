@@ -22,23 +22,48 @@ class OwnerAnalyser(AssetAnalyser):
         """Initialize the owner analyser."""
         super().__init__("owner")
     
-    def _create_union_query(self, base_query: str) -> str:
-        """Create a UNION query across all asset tables"""
-        table_names = AssetClass.get_all_table_names()
+    def _get_table_name(self, asset_class: str = None) -> str:
+        """Get table name for asset class"""
+        if asset_class:
+            for ac in AssetClass:
+                if ac.class_name == asset_class:
+                    return ac.table_name
+        return None
+    
+    def _query_single_table(self, query: str, table_name: str) -> List[Dict[str, Any]]:
+        """Execute query on single table"""
+        try:
+            return self.reader.execute_query(query.replace('FROM {table}', f'FROM {table_name}'))
+        except Exception as e:
+            print(f"⚠️ Error querying {table_name}: {e}")
+            return []
+    
+    def _query_all_tables(self, query: str) -> List[Dict[str, Any]]:
+        """Execute query on all tables and combine results"""
+        all_results = []
+        for table_name in AssetClass.get_all_table_names():
+            table_query = query.replace('FROM {table}', f'FROM {table_name}')
+            try:
+                result = self.reader.execute_query(table_query)
+                all_results.extend(result)
+            except Exception as e:
+                print(f"⚠️ Error querying {table_name}: {e}")
+                continue
+        return all_results
+    
+    def _combine_results(self, results: List[Dict[str, Any]], group_key: str) -> List[Dict[str, Any]]:
+        """Combine results by grouping key"""
+        combined = {}
+        for result in results:
+            key = result[group_key]
+            if key not in combined:
+                combined[key] = {group_key: key, 'total_assets': 0, 'unowned_assets': 0}
+            combined[key]['total_assets'] += result['total_assets']
+            combined[key]['unowned_assets'] += result['unowned_assets']
         
-        print(f"🔍 Creating UNION query across tables: {table_names}")
-        
-        # Create UNION query for each table
-        union_parts = []
-        for table_name in table_names:
-            # Replace 'FROM assets' with 'FROM {table_name}' in the query
-            table_query = base_query.replace('FROM assets', f'FROM {table_name}')
-            union_parts.append(f"({table_query})")
-        
-        union_query = " UNION ALL ".join(union_parts)
-        print(f"🔍 Generated UNION query: {union_query[:200]}...")  # Show first 200 chars
-        
-        return union_query
+        result_list = list(combined.values())
+        result_list.sort(key=lambda x: x['total_assets'], reverse=True)
+        return result_list
     
     def analyse(self, source_directory: str, result_directory: str) -> Dict[str, Any]:
         """
@@ -103,114 +128,41 @@ class OwnerAnalyser(AssetAnalyser):
         # No additional processing needed
         return asset
     
-    def get_ownership_summary(self) -> Dict[str, Any]:
-        """
-        Get ownership summary statistics using DuckDB SQL queries.
-        
-        Returns:
-            Dictionary containing ownership summary data
-            
-        Raises:
-            ValueError: If reader is not initialized
-        """
+    def get_ownership_summary(self, asset_class: str = None) -> Dict[str, Any]:
+        """Get ownership summary statistics"""
         if not self.reader:
             raise ValueError("Reader not initialized. Call create_reader() first.")
         
         try:
-            # First, let's check what columns are available in the first available table
             table_names = AssetClass.get_all_table_names()
             if not table_names:
                 return {"error": "No asset tables found"}
             
-            # Use the first table to get column info
+            # Get column info
             first_table = table_names[0]
             columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
-            # Get total assets using UNION across all tables
-            total_assets_query = self._create_union_query("SELECT COUNT(*) as total FROM assets")
-            total_assets_result = self.reader.execute_query(total_assets_query)
-            total_assets = total_assets_result[0]['total'] if total_assets_result else 0
+            # Find ownership fields
+            parent_cloud_field = next((col for col in available_columns if 'parentCloud.name' in col or 'parent_cloud' in col), None)
+            cloud_field = next((col for col in available_columns if 'cloud.name' in col or 'cloud' in col), None)
+            team_field = next((col for col in available_columns if 'team.name' in col or 'team' in col), None)
             
-            # Check for flattened attribution fields
-            parent_cloud_field = None
-            cloud_field = None
-            team_field = None
-            
-            for col in available_columns:
-                if 'parentCloud.name' in col or 'parent_cloud' in col:
-                    parent_cloud_field = col
-                elif 'cloud.name' in col or 'cloud' in col:
-                    cloud_field = col
-                elif 'team.name' in col or 'team' in col:
-                    team_field = col
-            
-            # Get total parent clouds (treating unknown/empty as "Zombie")
-            if parent_cloud_field:
-                try:
-                    total_parent_clouds_result = self.reader.execute_query(f"""
-                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie')) as total 
-                        FROM assets
-                    """)
-                    total_parent_clouds = total_parent_clouds_result[0]['total'] if total_parent_clouds_result else 0
-                except Exception as e:
-                    # If query fails, don't update the metric
-                    total_parent_clouds = 0
+            # Get total assets
+            if asset_class:
+                table_name = self._get_table_name(asset_class)
+                total_assets = self._query_single_table("SELECT COUNT(*) as total FROM {table}", table_name)[0]['total'] if table_name else 0
             else:
-                total_parent_clouds = 0
+                total_assets = sum(self._query_single_table("SELECT COUNT(*) as total FROM {table}", tn)[0]['total'] for tn in table_names)
             
-            # Get total clouds (treating unknown/empty as "Zombie")
-            if cloud_field:
-                try:
-                    total_clouds_result = self.reader.execute_query(f"""
-                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{cloud_field}", ''), 'Zombie')) as total 
-                        FROM assets
-                    """)
-                    total_clouds = total_clouds_result[0]['total'] if total_clouds_result else 0
-                except Exception as e:
-                    # If query fails, don't update the metric
-                    total_clouds = 0
-            else:
-                total_clouds = 0
+            # Get counts for each field
+            total_parent_clouds = self._get_distinct_count(parent_cloud_field, asset_class) if parent_cloud_field else 0
+            total_clouds = self._get_distinct_count(cloud_field, asset_class) if cloud_field else 0
+            total_teams = self._get_distinct_count(team_field, asset_class) if team_field else 0
             
-            # Get total teams (treating unknown/empty as "Zombie")
-            if team_field:
-                try:
-                    total_teams_result = self.reader.execute_query(f"""
-                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{team_field}", ''), 'Zombie')) as total 
-                        FROM assets
-                    """)
-                    total_teams = total_teams_result[0]['total'] if total_teams_result else 0
-                except Exception as e:
-                    # If query fails, don't update the metric
-                    total_teams = 0
-            else:
-                total_teams = 0
-            
-            # Get total assets unowned
-            unowned_conditions = []
-            if parent_cloud_field:
-                unowned_conditions.append(f'("{parent_cloud_field}" IS NULL OR "{parent_cloud_field}" = \'\')')
-            if cloud_field:
-                unowned_conditions.append(f'("{cloud_field}" IS NULL OR "{cloud_field}" = \'\')')
-            if team_field:
-                unowned_conditions.append(f'("{team_field}" IS NULL OR "{team_field}" = \'\')')
-            
-            if unowned_conditions:
-                try:
-                    unowned_query = f"""
-                        SELECT COUNT(*) as total 
-                        FROM assets 
-                        WHERE {' AND '.join(unowned_conditions)}
-                    """
-                    total_assets_unowned_result = self.reader.execute_query(unowned_query)
-                    total_assets_unowned = total_assets_unowned_result[0]['total'] if total_assets_unowned_result else 0
-                except Exception as e:
-                    # If query fails, don't update the metric
-                    total_assets_unowned = 0
-            else:
-                # If no ownership fields are detected, assume all assets are owned
-                total_assets_unowned = 0
+            # Get unowned assets
+            unowned_conditions = [f'("{field}" IS NULL OR "{field}" = \'\')' for field in [parent_cloud_field, cloud_field, team_field] if field]
+            total_assets_unowned = self._get_unowned_count(unowned_conditions, asset_class) if unowned_conditions else 0
             
             return {
                 'total_parent_clouds': total_parent_clouds,
@@ -229,410 +181,292 @@ class OwnerAnalyser(AssetAnalyser):
         except Exception as e:
             raise ValueError(f"Failed to get ownership summary: {str(e)}")
     
-    def get_parent_cloud_distribution(self) -> List[Dict[str, Any]]:
-        """
-        Get ownership distribution by parent cloud using DuckDB SQL query.
+    def _get_distinct_count(self, field: str, asset_class: str = None) -> int:
+        """Get distinct count for a field"""
+        query = f'SELECT COUNT(DISTINCT COALESCE(NULLIF("{field}", \'\'), \'Zombie\')) as total FROM {{table}}'
         
-        Returns:
-            List of dictionaries containing parent_cloud, total_assets, and unowned_assets
-            
-        Raises:
-            ValueError: If reader is not initialized
-        """
-        if not self.reader:
-            raise ValueError("Reader not initialized. Call create_reader() first.")
-        
-        try:
-            # First, let's check what columns are available in the first available table
-            table_names = AssetClass.get_all_table_names()
-            if not table_names:
-                return []
-            
-            first_table = table_names[0]
-            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
-            available_columns = [col['name'] for col in columns_result] if columns_result else []
-            
-            # Find the parent cloud field
-            parent_cloud_field = None
-            for col in available_columns:
-                if 'parentCloud.name' in col or 'parent_cloud' in col:
-                    parent_cloud_field = col
-                    break
-            
-            print(f"🔍 Available columns: {available_columns}")
-            print(f"🔍 Looking for parent cloud field, found: {parent_cloud_field}")
-            
-            if not parent_cloud_field:
-                print("⚠️ No parent cloud field found in available columns")
-                return []
-            
-            # Create UNION query across all tables
-            distribution_query = self._create_union_query(f"""
-                SELECT 
-                    COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie') as parent_cloud,
-                    COUNT(*) as total_assets,
-                    SUM(CASE 
-                        WHEN ("{parent_cloud_field}" IS NULL OR "{parent_cloud_field}" = '') 
-                        THEN 1 ELSE 0 
-                    END) as unowned_assets
-                FROM assets 
-                GROUP BY COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie')
-                ORDER BY total_assets DESC
-            """)
-            
-            try:
-                print(f"🔍 Executing parent cloud distribution query...")
-                result = self.reader.execute_query(distribution_query)
-                print(f"🔍 Query result: {len(result) if result else 0} rows returned")
-                return result
-            except Exception as e:
-                # If query fails, return empty list to avoid updating metrics
-                print(f"⚠️ Parent cloud distribution query failed: {e}")
-                return []
-            
-        except Exception as e:
-            raise ValueError(f"Failed to get parent cloud distribution: {str(e)}")
+        if asset_class:
+            table_name = self._get_table_name(asset_class)
+            if table_name:
+                result = self._query_single_table(query, table_name)
+                return result[0]['total'] if result else 0
+        else:
+            results = self._query_all_tables(query)
+            return sum(r['total'] for r in results)
+        return 0
     
-    def get_cloud_distribution(self) -> List[Dict[str, Any]]:
-        """
-        Get ownership distribution by cloud using DuckDB SQL query.
+    def _get_unowned_count(self, conditions: List[str], asset_class: str = None) -> int:
+        """Get count of unowned assets"""
+        query = f"SELECT COUNT(*) as total FROM {{table}} WHERE {' AND '.join(conditions)}"
         
-        Returns:
-            List of dictionaries containing cloud, total_assets, and unowned_assets
-            
-        Raises:
-            ValueError: If reader is not initialized
-        """
-        if not self.reader:
-            raise ValueError("Reader not initialized. Call create_reader() first.")
-        
-        try:
-            # First, let's check what columns are available in the first available table
-            table_names = AssetClass.get_all_table_names()
-            if not table_names:
-                return []
-            
-            first_table = table_names[0]
-            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
-            available_columns = [col['name'] for col in columns_result] if columns_result else []
-            
-            # Find the cloud field
-            cloud_field = None
-            for col in available_columns:
-                if 'cloud.name' in col or 'cloud' in col:
-                    cloud_field = col
-                    break
-            
-            if not cloud_field:
-                return []
-            
-            # Create UNION query across all tables
-            distribution_query = self._create_union_query(f"""
-                SELECT 
-                    COALESCE(NULLIF("{cloud_field}", ''), 'Zombie') as cloud,
-                    COUNT(*) as total_assets,
-                    SUM(CASE 
-                        WHEN ("{cloud_field}" IS NULL OR "{cloud_field}" = '') 
-                        THEN 1 ELSE 0 
-                    END) as unowned_assets
-                FROM assets 
-                GROUP BY COALESCE(NULLIF("{cloud_field}", ''), 'Zombie')
-                ORDER BY total_assets DESC
-            """)
-            
-            try:
-                return self.reader.execute_query(distribution_query)
-            except Exception as e:
-                # If query fails, return empty list to avoid updating metrics
-                return []
-            
-        except Exception as e:
-            raise ValueError(f"Failed to get cloud distribution: {str(e)}")
+        if asset_class:
+            table_name = self._get_table_name(asset_class)
+            if table_name:
+                result = self._query_single_table(query, table_name)
+                return result[0]['total'] if result else 0
+        else:
+            results = self._query_all_tables(query)
+            return sum(r['total'] for r in results)
+        return 0
     
-    def get_team_distribution(self) -> List[Dict[str, Any]]:
-        """
-        Get ownership distribution by team using DuckDB SQL query.
+    def get_parent_cloud_distribution(self, asset_class: str = None) -> List[Dict[str, Any]]:
+        """Get ownership distribution by parent cloud"""
+        # Try multiple field patterns for parent cloud
+        field_patterns = [
+            'parentCloud.name', 'parent_cloud', 'parentCloud', 'parent_cloud_name',
+            'parentCloudName', 'parentCloudName.name', 'cloud.parentCloud',
+            'attribution', 'properties', 'ownership'
+        ]
         
-        Returns:
-            List of dictionaries containing team, total_assets, and unowned_assets
-            
-        Raises:
-            ValueError: If reader is not initialized
-        """
-        if not self.reader:
-            raise ValueError("Reader not initialized. Call create_reader() first.")
+        field = self._find_field(field_patterns)
         
-        try:
-            # First, let's check what columns are available in the first available table
-            table_names = AssetClass.get_all_table_names()
-            if not table_names:
-                return []
-            
-            first_table = table_names[0]
-            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
-            available_columns = [col['name'] for col in columns_result] if columns_result else []
-            
-            # Find the team field
-            team_field = None
-            for col in available_columns:
-                if 'team.name' in col or 'team' in col:
-                    team_field = col
-                    break
-            
-            if not team_field:
-                return []
-            
-            # Create UNION query across all tables
-            distribution_query = self._create_union_query(f"""
-                SELECT 
-                    COALESCE(NULLIF("{team_field}", ''), 'Zombie') as team,
-                    COUNT(*) as total_assets,
-                    SUM(CASE 
-                        WHEN ("{team_field}" IS NULL OR "{team_field}" = '') 
-                        THEN 1 ELSE 0 
-                    END) as unowned_assets
-                FROM assets 
-                GROUP BY COALESCE(NULLIF("{team_field}", ''), 'Zombie')
-                ORDER BY total_assets DESC
-            """)
-            
-            try:
-                return self.reader.execute_query(distribution_query)
-            except Exception as e:
-                # If query fails, return empty list to avoid updating metrics
-                return []
-            
-        except Exception as e:
-            raise ValueError(f"Failed to get team distribution: {str(e)}")
+        if not field:
+            print("⚠️ No parent cloud field found. Available fields will be shown in console.")
+            # Show available fields for debugging
+            self._debug_available_fields(asset_class)
+            return []
+        
+        print(f"🔍 Using parent cloud field: {field}")
+        return self._get_distribution(field, 'parent_cloud', asset_class)
     
-    def get_mbu_distribution(self) -> List[Dict[str, Any]]:
-        """
-        Get ownership distribution by MBU (Management Business Unit) using DuckDB SQL query.
+    def get_cloud_distribution(self, asset_class: str = None) -> List[Dict[str, Any]]:
+        """Get ownership distribution by cloud"""
+        # Try multiple field patterns for cloud
+        field_patterns = [
+            'cloud.name', 'cloud', 'cloud_name', 'cloud_provider',
+            'provider', 'aws', 'azure', 'gcp', 'google_cloud',
+            'parent_cloud', 'parentCloud', 'parentCloud.name',
+            'attribution', 'properties', 'ownership'
+        ]
         
-        Returns:
-            List of dictionaries containing mbu, total_assets, and unowned_assets
-            
-        Raises:
-            ValueError: If reader is not initialized
-        """
+        field = self._find_field(field_patterns)
+        
+        if not field:
+            print("⚠️ No cloud field found. Available fields will be shown in console.")
+            # Show available fields for debugging
+            self._debug_available_fields(asset_class)
+            return []
+        
+        print(f"🔍 Using cloud field: {field}")
+        return self._get_distribution(field, 'cloud', asset_class)
+    
+    def get_team_distribution(self, asset_class: str = None) -> List[Dict[str, Any]]:
+        """Get ownership distribution by team"""
+        # Try multiple field patterns for team
+        field_patterns = [
+            'team.name', 'team', 'team_name', 'teamName', 'teamName.name',
+            'owner', 'owner.name', 'owner_name', 'assigned_team',
+            'attribution', 'properties', 'ownership'
+        ]
+        
+        field = self._find_field(field_patterns)
+        
+        if not field:
+            print("⚠️ No team field found. Available fields will be shown in console.")
+            # Show available fields for debugging
+            self._debug_available_fields(asset_class)
+            return []
+        
+        print(f"🔍 Using team field: {field}")
+        return self._get_distribution(field, 'team', asset_class)
+    
+    def _find_field(self, field_patterns: List[str]) -> str:
+        """Find field matching any of the patterns"""
         if not self.reader:
-            raise ValueError("Reader not initialized. Call create_reader() first.")
+            return None
+        
+        table_names = AssetClass.get_all_table_names()
+        if not table_names:
+            return None
+        
+        columns_result = self.reader.execute_query(f"PRAGMA table_info({table_names[0]})")
+        available_columns = [col['name'] for col in columns_result] if columns_result else []
+        
+        for pattern in field_patterns:
+            for col in available_columns:
+                if pattern in col:
+                    return col
+        return None
+    
+    def _get_distribution(self, field: str, group_key: str, asset_class: str = None) -> List[Dict[str, Any]]:
+        """Get distribution for a field"""
+        if not field:
+            return []
+        
+        # Check if field contains JSON data and adjust query accordingly
+        is_json = self._is_json_field(field, asset_class)
+        
+        if is_json and group_key == 'mbu':
+            # Handle JSON field for MBU
+            field_expr = f"JSON_EXTRACT_STRING(\"{field}\", '$.mbu')"
+        elif is_json and group_key == 'bu':
+            # Handle JSON field for BU
+            field_expr = f"JSON_EXTRACT_STRING(\"{field}\", '$.bu')"
+        else:
+            # Handle direct string field
+            field_expr = f"\"{field}\""
+        
+        query = f"""
+            SELECT 
+                COALESCE(NULLIF({field_expr}, ''), 'Zombie') as {group_key},
+                COUNT(*) as total_assets,
+                SUM(CASE 
+                    WHEN ({field_expr} IS NULL OR {field_expr} = '') 
+                    THEN 1 ELSE 0 
+                END) as unowned_assets
+            FROM {{table}} 
+            GROUP BY COALESCE(NULLIF({field_expr}, ''), 'Zombie')
+        """
+        
+        print(f"🔍 Executing {group_key} distribution query with field: {field} (JSON: {is_json})")
+        
+        if asset_class:
+            table_name = self._get_table_name(asset_class)
+            if table_name:
+                return self._query_single_table(query, table_name)
+        else:
+            results = self._query_all_tables(query)
+            return self._combine_results(results, group_key)
+        return []
+    
+    
+    def get_mbu_distribution(self, asset_class: str = None) -> List[Dict[str, Any]]:
+        """Get ownership distribution by MBU"""
+        # Try multiple field patterns for MBU
+        field_patterns = [
+            'properties_mbu', 'mbu', 'properties.mbu', 'properties_mbu_mbu',
+            'properties_bu_mbu', 'mbu_name', 'management_business_unit',
+            'properties', 'attribution', 'ownership'
+        ]
+        
+        field = self._find_field(field_patterns)
+        
+        if not field:
+            print("⚠️ No MBU field found. Available fields will be shown in console.")
+            # Show available fields for debugging
+            self._debug_available_fields(asset_class)
+            return []
+        
+        print(f"🔍 Using MBU field: {field}")
+        return self._get_distribution(field, 'mbu', asset_class)
+    
+    def get_bu_distribution(self, asset_class: str = None) -> List[Dict[str, Any]]:
+        """Get ownership distribution by BU and MBU"""
+        bu_field = self._find_field(['properties_bu', 'bu', 'properties.bu', 'business_unit'])
+        mbu_field = self._find_field(['properties_mbu', 'mbu', 'properties.mbu'])
+        
+        if not bu_field:
+            bu_field = self._find_field(['properties'])
+        if not mbu_field:
+            mbu_field = bu_field  # Use BU field as fallback
+            
+        return self._get_bu_mbu_distribution(bu_field, mbu_field, asset_class) if bu_field else []
+    
+    def _get_bu_mbu_distribution(self, bu_field: str, mbu_field: str, asset_class: str = None) -> List[Dict[str, Any]]:
+        """Get BU/MBU distribution with field expressions"""
+        # Check if fields are JSON
+        bu_expr = f"JSON_EXTRACT_STRING(\"{bu_field}\", '$.bu')" if self._is_json_field(bu_field, asset_class) else f"\"{bu_field}\""
+        mbu_expr = f"JSON_EXTRACT_STRING(\"{mbu_field}\", '$.mbu')" if self._is_json_field(mbu_field, asset_class) else f"\"{mbu_field}\""
+        
+        query = f"""
+            SELECT 
+                COALESCE(NULLIF({bu_expr}, ''), 'Unknown BU') as bu,
+                COALESCE(NULLIF({mbu_expr}, ''), 'Unknown MBU') as mbu,
+                COUNT(*) as total_assets,
+                SUM(CASE 
+                    WHEN ({bu_expr} IS NULL OR {bu_expr} = '') 
+                    THEN 1 ELSE 0 
+                END) as unowned_assets
+            FROM {{table}} 
+            GROUP BY 
+                COALESCE(NULLIF({bu_expr}, ''), 'Unknown BU'),
+                COALESCE(NULLIF({mbu_expr}, ''), 'Unknown MBU')
+        """
+        
+        if asset_class:
+            table_name = self._get_table_name(asset_class)
+            if table_name:
+                return self._query_single_table(query, table_name)
+        else:
+            results = self._query_all_tables(query)
+            # Combine by bu and mbu
+            combined = {}
+            for result in results:
+                key = (result['bu'], result['mbu'])
+                if key not in combined:
+                    combined[key] = {'bu': result['bu'], 'mbu': result['mbu'], 'total_assets': 0, 'unowned_assets': 0}
+                combined[key]['total_assets'] += result['total_assets']
+                combined[key]['unowned_assets'] += result['unowned_assets']
+            
+            result_list = list(combined.values())
+            result_list.sort(key=lambda x: x['total_assets'], reverse=True)
+            return result_list
+        return []
+    
+    def _is_json_field(self, field: str, asset_class: str = None) -> bool:
+        """Check if field contains JSON data"""
+        if not field:
+            return False
         
         try:
-            # First, let's check what columns are available in the first available table
-            table_names = AssetClass.get_all_table_names()
-            if not table_names:
-                return []
-            
-            first_table = table_names[0]
-            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
-            available_columns = [col['name'] for col in columns_result] if columns_result else []
-            
-            # Find the MBU field - look for various possible field names
-            mbu_field = None
-            for col in available_columns:
-                if any(term in col.lower() for term in ['properties_mbu', 'mbu', 'properties.mbu']):
-                    mbu_field = col
-                    break
-            
-            print(f"🔍 Available columns for MBU analysis: {available_columns}")
-            print(f"🔍 Looking for MBU field, found: {mbu_field}")
-            
-            if not mbu_field:
-                # Try to find any field that might contain MBU data
-                potential_mbu_fields = [col for col in available_columns if 'properties' in col.lower()]
-                print(f"🔍 Potential MBU fields: {potential_mbu_fields}")
-                if potential_mbu_fields:
-                    mbu_field = potential_mbu_fields[0]
-                    print(f"🔍 Using fallback MBU field: {mbu_field}")
-                else:
-                    print("⚠️ No MBU field found in available columns")
-                    return []
-            
-            # Check if the field is JSON or direct string
-            sample_query = self._create_union_query(f"SELECT \"{mbu_field}\" FROM assets LIMIT 1")
-            try:
-                print(f"🔍 Executing sample query for field '{mbu_field}'...")
-                sample_result = self.reader.execute_query(sample_query)
-                print(f"🔍 Sample query result: {len(sample_result) if sample_result else 0} rows")
-                
-                if sample_result and sample_result[0][mbu_field]:
-                    sample_value = sample_result[0][mbu_field]
-                    is_json = isinstance(sample_value, str) and (sample_value.startswith('{') or sample_value.startswith('['))
-                    print(f"🔍 Sample value: {str(sample_value)[:100]}...")
-                    print(f"🔍 Is JSON: {is_json}")
-                else:
-                    is_json = False
-                    print("🔍 No sample data found or field is empty")
-            except Exception as e:
-                print(f"⚠️ Sample query failed: {e}")
-                is_json = False
-            
-            if is_json:
-                # Handle JSON field
-                distribution_query = self._create_union_query(f"""
-                    SELECT 
-                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU') as mbu,
-                        COUNT(*) as total_assets,
-                        SUM(CASE 
-                            WHEN (JSON_EXTRACT_STRING("{mbu_field}", '$.mbu') IS NULL OR JSON_EXTRACT_STRING("{mbu_field}", '$.mbu') = '') 
-                            THEN 1 ELSE 0 
-                        END) as unowned_assets
-                    FROM assets 
-                    GROUP BY COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU')
-                    ORDER BY total_assets DESC
-                """)
+            if asset_class:
+                table_name = self._get_table_name(asset_class)
+                if not table_name:
+                    return False
+                sample_query = f"SELECT \"{field}\" FROM {table_name} LIMIT 1"
             else:
-                # Handle direct string field
-                distribution_query = self._create_union_query(f"""
-                    SELECT 
-                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
-                        COUNT(*) as total_assets,
-                        SUM(CASE 
-                            WHEN ("{mbu_field}" IS NULL OR "{mbu_field}" = '') 
-                            THEN 1 ELSE 0 
-                        END) as unowned_assets
-                    FROM assets 
-                    GROUP BY COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
-                    ORDER BY total_assets DESC
-                """)
+                table_names = AssetClass.get_all_table_names()
+                if not table_names:
+                    return False
+                sample_query = f"SELECT \"{field}\" FROM {table_names[0]} LIMIT 1"
             
-            try:
-                print(f"🔍 Executing MBU distribution query...")
-                print(f"🔍 Field type: {'JSON' if is_json else 'Direct string'}")
-                result = self.reader.execute_query(distribution_query)
-                print(f"🔍 MBU query result: {len(result) if result else 0} rows returned")
-                return result
-            except Exception as e:
-                # If query fails, return empty list to avoid updating metrics
-                print(f"⚠️ MBU distribution query failed: {e}")
-                return []
-            
-        except Exception as e:
-            raise ValueError(f"Failed to get MBU distribution: {str(e)}")
+            result = self.reader.execute_query(sample_query)
+            if result and result[0][field]:
+                value = result[0][field]
+                return isinstance(value, str) and (value.startswith('{') or value.startswith('['))
+        except:
+            pass
+        return False
     
-    def get_bu_distribution(self) -> List[Dict[str, Any]]:
-        """
-        Get ownership distribution by BU (Business Unit) and MBU (Management Business Unit) using DuckDB SQL query.
-        
-        Returns:
-            List of dictionaries containing bu, mbu, total_assets, and unowned_assets
-            
-        Raises:
-            ValueError: If reader is not initialized
-        """
-        if not self.reader:
-            raise ValueError("Reader not initialized. Call create_reader() first.")
-        
+    def _debug_available_fields(self, asset_class: str = None):
+        """Debug method to show available fields in the database"""
         try:
-            # First, let's check what columns are available in the first available table
-            table_names = AssetClass.get_all_table_names()
-            if not table_names:
-                return []
-            
-            first_table = table_names[0]
-            columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
-            available_columns = [col['name'] for col in columns_result] if columns_result else []
-            
-            # Find the BU and MBU fields - look for various possible field names
-            bu_field = None
-            mbu_field = None
-            
-            for col in available_columns:
-                if any(term in col.lower() for term in ['properties_bu', 'bu', 'properties.bu', 'business_unit']):
-                    bu_field = col
-                elif any(term in col.lower() for term in ['properties_mbu', 'mbu', 'properties.mbu']):
-                    mbu_field = col
-            
-            if not bu_field:
-                # Try to find any field that might contain BU data
-                potential_bu_fields = [col for col in available_columns if 'properties' in col.lower()]
-                if potential_bu_fields:
-                    bu_field = potential_bu_fields[0]
-                else:
-                    return []
-            
-            if not mbu_field:
-                # Try to find any field that might contain MBU data
-                potential_mbu_fields = [col for col in available_columns if 'properties' in col.lower()]
-                if potential_mbu_fields:
-                    mbu_field = potential_mbu_fields[0]
-                else:
-                    mbu_field = bu_field  # Use BU field as fallback
-            
-            # Check if the fields are JSON or direct string
-            sample_query = self._create_union_query(f"SELECT \"{bu_field}\", \"{mbu_field}\" FROM assets LIMIT 1")
-            try:
-                sample_result = self.reader.execute_query(sample_query)
-                if sample_result:
-                    bu_value = sample_result[0].get(bu_field, '')
-                    mbu_value = sample_result[0].get(mbu_field, '')
-                    bu_is_json = isinstance(bu_value, str) and (bu_value.startswith('{') or bu_value.startswith('['))
-                    mbu_is_json = isinstance(mbu_value, str) and (mbu_value.startswith('{') or mbu_value.startswith('['))
-                else:
-                    bu_is_json = False
-                    mbu_is_json = False
-            except:
-                bu_is_json = False
-                mbu_is_json = False
-            
-            if bu_is_json and mbu_is_json:
-                # Handle JSON fields for both BU and MBU
-                distribution_query = self._create_union_query(f"""
-                    SELECT 
-                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU') as bu,
-                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU') as mbu,
-                        COUNT(*) as total_assets,
-                        SUM(CASE 
-                            WHEN (JSON_EXTRACT_STRING("{bu_field}", '$.bu') IS NULL OR JSON_EXTRACT_STRING("{bu_field}", '$.bu') = '') 
-                            THEN 1 ELSE 0 
-                        END) as unowned_assets
-                    FROM assets 
-                    GROUP BY 
-                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU'),
-                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{mbu_field}", '$.mbu'), ''), 'Unknown MBU')
-                    ORDER BY total_assets DESC
-                """)
-            elif bu_is_json:
-                # Handle JSON field for BU, direct string for MBU
-                distribution_query = self._create_union_query(f"""
-                    SELECT 
-                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU') as bu,
-                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
-                        COUNT(*) as total_assets,
-                        SUM(CASE 
-                            WHEN (JSON_EXTRACT_STRING("{bu_field}", '$.bu') IS NULL OR JSON_EXTRACT_STRING("{bu_field}", '$.bu') = '') 
-                            THEN 1 ELSE 0 
-                        END) as unowned_assets
-                    FROM assets 
-                    GROUP BY 
-                        COALESCE(NULLIF(JSON_EXTRACT_STRING("{bu_field}", '$.bu'), ''), 'Unknown BU'),
-                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
-                    ORDER BY total_assets DESC
-                """)
+            if asset_class:
+                table_name = self._get_table_name(asset_class)
+                if not table_name:
+                    print(f"❌ Table not found for asset class: {asset_class}")
+                    return
+                tables_to_check = [table_name]
             else:
-                # Handle direct string fields for both BU and MBU
-                distribution_query = self._create_union_query(f"""
-                    SELECT 
-                        COALESCE(NULLIF("{bu_field}", ''), 'Unknown BU') as bu,
-                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU') as mbu,
-                        COUNT(*) as total_assets,
-                        SUM(CASE 
-                            WHEN ("{bu_field}" IS NULL OR "{bu_field}" = '') 
-                            THEN 1 ELSE 0 
-                        END) as unowned_assets
-                    FROM assets 
-                    GROUP BY 
-                        COALESCE(NULLIF("{bu_field}", ''), 'Unknown BU'),
-                        COALESCE(NULLIF("{mbu_field}", ''), 'Unknown MBU')
-                    ORDER BY total_assets DESC
-                """)
+                tables_to_check = AssetClass.get_all_table_names()
             
-            try:
-                return self.reader.execute_query(distribution_query)
-            except Exception as e:
-                # If query fails, return empty list to avoid updating metrics
-                return []
+            print(f"🔍 Checking tables: {tables_to_check}")
             
+            for table_name in tables_to_check:
+                try:
+                    columns_result = self.reader.execute_query(f"PRAGMA table_info({table_name})")
+                    available_columns = [col['name'] for col in columns_result] if columns_result else []
+                    print(f"📋 Available columns in {table_name}: {available_columns}")
+                    
+                    # Look for any field that might contain ownership data
+                    ownership_candidates = [col for col in available_columns if any(term in col.lower() for term in [
+                        'mbu', 'bu', 'cloud', 'team', 'owner', 'parent', 'properties', 'attribution', 'ownership'
+                    ])]
+                    if ownership_candidates:
+                        print(f"🎯 Potential ownership fields in {table_name}: {ownership_candidates}")
+                        
+                        # Show sample data for potential fields
+                        for candidate in ownership_candidates[:5]:  # Check first 5 candidates
+                            try:
+                                sample_query = f"SELECT \"{candidate}\" FROM {table_name} LIMIT 1"
+                                sample_result = self.reader.execute_query(sample_query)
+                                if sample_result and sample_result[0][candidate]:
+                                    sample_value = str(sample_result[0][candidate])[:100]
+                                    print(f"📄 Sample data for {candidate}: {sample_value}...")
+                            except Exception as e:
+                                print(f"⚠️ Error sampling {candidate}: {e}")
+                except Exception as e:
+                    print(f"⚠️ Error checking table {table_name}: {e}")
+                    
         except Exception as e:
-            raise ValueError(f"Failed to get BU distribution: {str(e)}")
+            print(f"❌ Error in debug_available_fields: {e}")
