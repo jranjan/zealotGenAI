@@ -53,9 +53,27 @@ class OwnershipAnalyserTab(BaseTab):
         # Create left and right columns (15% for buttons, 85% for results)
         left_col, right_col = st.columns([0.15, 0.85])
         
-        # Left pane: Analysis buttons (single column)
+        # Left pane: Asset class selector and analysis buttons
         with left_col:
-            st.markdown("### Analysis Tools")
+            # Asset class selector
+            st.markdown("#### Asset Class Filter")
+            from common.asset_class import AssetClass
+            
+            # Get available asset classes
+            asset_classes = [ac.class_name for ac in AssetClass]
+            
+            selected_asset_class = st.selectbox(
+                "Choose Asset Class:",
+                options=asset_classes,
+                index=0,
+                key="ownership_asset_class_selector",
+                help="Select a specific asset class to analyze"
+            )
+            
+            # Store selected asset class in session state
+            st.session_state['selected_asset_class'] = selected_asset_class
+            
+            st.markdown("---")
             
             # All analysis buttons in single column
             if st.button("Ownership Summary", type="primary", width='stretch'):
@@ -94,7 +112,8 @@ class OwnershipAnalyserTab(BaseTab):
             if st.session_state.get('run_ownership_summary', False):
                 st.session_state['run_ownership_summary'] = False
                 if target_folder and st.session_state.get('database_ready', False):
-                    result = self._get_ownership_summary_result(target_folder)
+                    selected_asset_class = st.session_state.get('selected_asset_class')
+                    result = self._get_ownership_summary_result(target_folder, selected_asset_class)
                     st.session_state.analysis_results['ownership_summary'] = result
                 elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
@@ -104,7 +123,8 @@ class OwnershipAnalyserTab(BaseTab):
             if st.session_state.get('run_parent_cloud_analysis', False):
                 st.session_state['run_parent_cloud_analysis'] = False
                 if target_folder and st.session_state.get('database_ready', False):
-                    result = self._get_parent_cloud_analysis_result(target_folder)
+                    selected_asset_class = st.session_state.get('selected_asset_class')
+                    result = self._get_parent_cloud_analysis_result(target_folder, selected_asset_class)
                     st.session_state.analysis_results['parent_cloud_analysis'] = result
                 elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
@@ -114,7 +134,8 @@ class OwnershipAnalyserTab(BaseTab):
             if st.session_state.get('run_cloud_analysis', False):
                 st.session_state['run_cloud_analysis'] = False
                 if target_folder and st.session_state.get('database_ready', False):
-                    result = self._get_cloud_analysis_result(target_folder)
+                    selected_asset_class = st.session_state.get('selected_asset_class')
+                    result = self._get_cloud_analysis_result(target_folder, selected_asset_class)
                     st.session_state.analysis_results['cloud_analysis'] = result
                 elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
@@ -124,7 +145,8 @@ class OwnershipAnalyserTab(BaseTab):
             if st.session_state.get('run_team_analysis', False):
                 st.session_state['run_team_analysis'] = False
                 if target_folder and st.session_state.get('database_ready', False):
-                    result = self._get_team_analysis_result(target_folder)
+                    selected_asset_class = st.session_state.get('selected_asset_class')
+                    result = self._get_team_analysis_result(target_folder, selected_asset_class)
                     st.session_state.analysis_results['team_analysis'] = result
                 elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
@@ -134,7 +156,8 @@ class OwnershipAnalyserTab(BaseTab):
             if st.session_state.get('run_mbu_analysis', False):
                 st.session_state['run_mbu_analysis'] = False
                 if target_folder and st.session_state.get('database_ready', False):
-                    result = self._get_mbu_analysis_result(target_folder)
+                    selected_asset_class = st.session_state.get('selected_asset_class')
+                    result = self._get_mbu_analysis_result(target_folder, selected_asset_class)
                     st.session_state.analysis_results['mbu_analysis'] = result
                 elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
@@ -144,7 +167,8 @@ class OwnershipAnalyserTab(BaseTab):
             if st.session_state.get('run_bu_analysis', False):
                 st.session_state['run_bu_analysis'] = False
                 if target_folder and st.session_state.get('database_ready', False):
-                    result = self._get_bu_analysis_result(target_folder)
+                    selected_asset_class = st.session_state.get('selected_asset_class')
+                    result = self._get_bu_analysis_result(target_folder, selected_asset_class)
                     st.session_state.analysis_results['bu_analysis'] = result
                 elif not target_folder:
                     st.warning("⚠️ Please provide a data directory path")
@@ -453,12 +477,12 @@ class OwnershipAnalyserTab(BaseTab):
             # Ignore errors when closing connection
             pass
     
-    def _get_ownership_summary_result(self, target_folder: str):
+    def _get_ownership_summary_result(self, target_folder: str, asset_class: str = None):
         """Get ownership summary analysis result"""
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            summary = self.analyser.get_ownership_summary()
+            summary = self.analyser.get_ownership_summary(asset_class)
             if summary is None:
                 return {
                     'type': 'ownership_summary',
@@ -525,12 +549,12 @@ class OwnershipAnalyserTab(BaseTab):
         except Exception as e:
             st.error(f"❌ Error running ownership summary: {str(e)}")
     
-    def _get_parent_cloud_analysis_result(self, target_folder: str):
+    def _get_parent_cloud_analysis_result(self, target_folder: str, asset_class: str = None):
         """Get parent cloud analysis result"""
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_parent_cloud_distribution()
+            distribution = self.analyser.get_parent_cloud_distribution(asset_class)
             if distribution is None:
                 return {
                     'type': 'parent_cloud_analysis',
@@ -542,7 +566,7 @@ class OwnershipAnalyserTab(BaseTab):
                 'type': 'parent_cloud_analysis',
                 'data': distribution,
                 'success': len(distribution) > 0,
-                'error': None if len(distribution) > 0 else 'No parent cloud data available'
+                'error': None if len(distribution) > 0 else 'No data available'
             }
         except Exception as e:
             return {
@@ -587,7 +611,7 @@ class OwnershipAnalyserTab(BaseTab):
                 )
                 st.success("✅ Parent cloud analysis completed!")
             else:
-                st.warning("⚠️ No parent cloud data available")
+                st.warning("⚠️ No data available")
                 
         except Exception as e:
             st.error(f"❌ Error running parent cloud analysis: {str(e)}")
@@ -627,7 +651,7 @@ class OwnershipAnalyserTab(BaseTab):
                 )
                 st.success("✅ Cloud analysis completed!")
             else:
-                st.warning("⚠️ No cloud data available")
+                st.warning("⚠️ No data available")
                 
         except Exception as e:
             st.error(f"❌ Error running cloud analysis: {str(e)}")
@@ -693,7 +717,7 @@ class OwnershipAnalyserTab(BaseTab):
                 )
                 st.success("✅ Team analysis completed!")
             else:
-                st.warning("⚠️ No team data available")
+                st.warning("⚠️ No data available")
                 
         except Exception as e:
             st.error(f"❌ Error running team analysis: {str(e)}")
@@ -782,12 +806,12 @@ class OwnershipAnalyserTab(BaseTab):
         except Exception as e:
             st.error(f"❌ Error running deep dive analysis: {str(e)}")
     
-    def _get_cloud_analysis_result(self, target_folder: str):
+    def _get_cloud_analysis_result(self, target_folder: str, asset_class: str = None):
         """Get cloud analysis result"""
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_cloud_distribution()
+            distribution = self.analyser.get_cloud_distribution(asset_class)
             if distribution is None or len(distribution) == 0:
                 return {
                     'type': 'cloud_analysis',
@@ -809,12 +833,12 @@ class OwnershipAnalyserTab(BaseTab):
                 'error': str(e)
             }
     
-    def _get_team_analysis_result(self, target_folder: str):
+    def _get_team_analysis_result(self, target_folder: str, asset_class: str = None):
         """Get team analysis result"""
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_team_distribution()
+            distribution = self.analyser.get_team_distribution(asset_class)
             if distribution is None or len(distribution) == 0:
                 return {
                     'type': 'team_analysis',
@@ -836,18 +860,18 @@ class OwnershipAnalyserTab(BaseTab):
                 'error': str(e)
             }
     
-    def _get_mbu_analysis_result(self, target_folder: str):
+    def _get_mbu_analysis_result(self, target_folder: str, asset_class: str = None):
         """Get MBU analysis result"""
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_mbu_distribution()
+            distribution = self.analyser.get_mbu_distribution(asset_class)
             if distribution is None or len(distribution) == 0:
                 return {
                     'type': 'mbu_analysis',
                     'data': None,
                     'success': False,
-                    'error': 'No MBU data found - properties_mbu field may not exist or be empty in the database. Check the console output for available fields.'
+                    'error': 'No data available'
                 }
             return {
                 'type': 'mbu_analysis',
@@ -863,18 +887,18 @@ class OwnershipAnalyserTab(BaseTab):
                 'error': str(e)
             }
     
-    def _get_bu_analysis_result(self, target_folder: str):
+    def _get_bu_analysis_result(self, target_folder: str, asset_class: str = None):
         """Get BU analysis result"""
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_bu_distribution()
+            distribution = self.analyser.get_bu_distribution(asset_class)
             if distribution is None or len(distribution) == 0:
                 return {
                     'type': 'bu_analysis',
                     'data': None,
                     'success': False,
-                    'error': 'No BU data found - properties_bu field may not exist or be empty in the database. Check the console output for available fields.'
+                    'error': 'No data available'
                 }
             return {
                 'type': 'bu_analysis',
@@ -1071,7 +1095,7 @@ class OwnershipAnalyserTab(BaseTab):
                     }
                 )
             else:
-                st.warning("⚠️ No parent cloud data available")
+                st.warning("⚠️ No data available")
         
         elif analysis_type == 'cloud_analysis':
             if data is not None and len(data) > 0:
@@ -1154,7 +1178,7 @@ class OwnershipAnalyserTab(BaseTab):
                     }
                 )
             else:
-                st.warning("⚠️ No cloud data available")
+                st.warning("⚠️ No data available")
         
         elif analysis_type == 'team_analysis':
             if data is not None and len(data) > 0:
@@ -1221,7 +1245,7 @@ class OwnershipAnalyserTab(BaseTab):
                     }
                 )
             else:
-                st.warning("⚠️ No team data available")
+                st.warning("⚠️ No data available")
         
         elif analysis_type == 'mbu_analysis':
             if data is not None and len(data) > 0:
@@ -1302,7 +1326,7 @@ class OwnershipAnalyserTab(BaseTab):
                     }
                 )
             else:
-                st.warning("⚠️ No MBU data available")
+                st.warning("⚠️ No data available")
         
         elif analysis_type == 'bu_analysis':
             if data is not None and len(data) > 0:
@@ -1387,5 +1411,6 @@ class OwnershipAnalyserTab(BaseTab):
                     }
                 )
             else:
-                st.warning("⚠️ No BU data available")
+                st.warning("⚠️ No data available")
         
+

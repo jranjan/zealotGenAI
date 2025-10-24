@@ -23,10 +23,9 @@ class AssetClass(Enum):
     AWS_EC2 = ("aws_ec2_instance", "AWS EC2", "ec2")
     
     # AWS Services
-    AWS_ACCOUNT = ("aws_account", "AWS Account", "aws_accounts")
-    AWS_EKS_CLUSTER = ("aws_eks_cluster", "AWS EKS", "containers")
-    AWS_SQS = ("aws_sqs", "AWS SQS", "aws_services")
-    
+    AWS_EKS_CLUSTER = ("aws_eks_cluster", "AWS EKS", "aws_services")
+    CONTAINERS = ("containers", "Containers", "containers")
+
     # Application Services
     SERVICE = ("service", "Service", "services")
     

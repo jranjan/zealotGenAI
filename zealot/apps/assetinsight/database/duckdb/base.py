@@ -57,9 +57,12 @@ class Reader(ABC):
         """Create all tables defined in the schema configuration"""
         try:
             # Get all table schemas from assets.yaml
+            print("🔍 Getting table schemas from assets.yaml...")
             all_schemas = self._get_all_schemas()
+            print(f"📋 Retrieved schemas for {len(all_schemas)} tables: {list(all_schemas.keys())}")
             
             if not all_schemas:
+                print("⚠️ No schemas found, falling back to single assets table")
                 # Fallback to single assets table if no multi-table schema
                 self._create_assets_table(conn)
                 return
@@ -77,6 +80,11 @@ class Reader(ABC):
                 conn.execute(create_sql)
                 print(f"✅ Table '{table_name}' ensured")
             
+            # Verify tables were created
+            show_tables_result = conn.execute("SHOW TABLES").fetchall()
+            created_tables = [row[0] for row in show_tables_result] if show_tables_result else []
+            print(f"🔍 Tables created successfully: {created_tables}")
+            
         except Exception as e:
             print(f"⚠️ Error creating tables from schema: {e}")
             raise e
@@ -84,10 +92,16 @@ class Reader(ABC):
     def _get_all_schemas(self):
         """Get all table schemas from SchemaGuide"""
         try:
+            print("🔍 Initializing SchemaGuide...")
             schema_guide = SchemaGuide()
-            return schema_guide.get_all_table_schemas()
+            print("🔍 Getting all table schemas...")
+            schemas = schema_guide.get_all_table_schemas()
+            print(f"📋 SchemaGuide returned {len(schemas)} table schemas")
+            return schemas
         except Exception as e:
             print(f"⚠️ Error loading all schemas: {e}")
+            import traceback
+            traceback.print_exc()
             return {}
     
     def _reconstruct_nested_json(self, asset: dict, prefix: str) -> str:

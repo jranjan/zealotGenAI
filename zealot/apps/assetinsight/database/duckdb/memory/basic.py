@@ -39,18 +39,18 @@ class BasicMemoryDuckdb(Reader):
         if folder_path_str not in self._initialized:
             super().__init__(folder_path)
             self.folder_path = Path(folder_path)
-            self.db_path = None
+            self.db_path = None  # In-memory database
             self.conn = None
             self._setup_database()
             self._initialized.add(folder_path_str)
     
     def _setup_database(self):
         """Setup DuckDB database and load JSON files"""
-        # Use a persistent database file in the folder instead of temp file
-        self.db_path = self.folder_path / "assets.db"
-        print(f"🗄️ Creating database at: {self.db_path}")
-        self.conn = duckdb.connect(str(self.db_path))
-        print(f"✅ Database connection established")
+        # Use in-memory database for better performance
+        self.db_path = None  # No file path for in-memory database
+        print(f"🗄️ Creating in-memory DuckDB database")
+        self.conn = duckdb.connect()  # In-memory connection
+        print(f"✅ In-memory database connection established")
         self._load_json_files()
         print(f"✅ Database setup complete")
     
@@ -141,25 +141,24 @@ class BasicMemoryDuckdb(Reader):
     
     def execute_query(self, sql_query: str) -> List[Dict[str, Any]]:
         """Execute a SQL query and return results"""
-        # Create new connection for this query to avoid connection issues
-        if not self.db_path or not os.path.exists(self.db_path):
+        # Use the existing in-memory connection
+        if not self.conn:
             return []
         
-        conn = duckdb.connect(str(self.db_path))
         try:
-            result = conn.execute(sql_query).fetchall()
-            columns = [desc[0] for desc in conn.description]
+            result = self.conn.execute(sql_query).fetchall()
+            columns = [desc[0] for desc in self.conn.description]
             return [dict(zip(columns, row)) for row in result]
-        finally:
-            conn.close()
+        except Exception as e:
+            print(f"⚠️ Error executing query: {e}")
+            return []
     
     def get_total_objects(self) -> int:
         """Get total number of assets across all tables"""
-        # Create new connection for this query to avoid connection issues
-        if not self.db_path or not os.path.exists(self.db_path):
+        # Use the existing in-memory connection
+        if not self.conn:
             return 0
         
-        conn = duckdb.connect(str(self.db_path))
         try:
             # Get all table names from the mapping
             table_names = AssetClass.get_all_table_names()
@@ -167,7 +166,7 @@ class BasicMemoryDuckdb(Reader):
             total_count = 0
             for table_name in table_names:
                 try:
-                    result = conn.execute(f"SELECT COUNT(*) as count FROM {table_name}").fetchone()
+                    result = self.conn.execute(f"SELECT COUNT(*) as count FROM {table_name}").fetchone()
                     if result:
                         total_count += result[0]
                 except Exception:
@@ -175,8 +174,9 @@ class BasicMemoryDuckdb(Reader):
                     continue
             
             return total_count
-        finally:
-            conn.close()
+        except Exception as e:
+            print(f"⚠️ Error getting total objects: {e}")
+            return 0
     
     def check_data_readiness(self) -> Dict[str, Any]:
         """
@@ -310,8 +310,7 @@ class BasicMemoryDuckdb(Reader):
         """Close the database and clean up resources"""
         if self.conn:
             self.conn.close()
-        if self.db_path and os.path.exists(self.db_path):
-            os.unlink(self.db_path)
+        # No file cleanup needed for in-memory database
     
     @classmethod
     def get_instance(cls, folder_path: str):
@@ -351,9 +350,9 @@ class BasicMemoryDuckdb(Reader):
         Returns:
             Dictionary containing performance statistics
         """
-        # Create a new connection for this query to avoid connection issues
-        if not self.db_path or not os.path.exists(self.db_path):
-            print(f"⚠️ Database file not found: {self.db_path}")
+        # Use the existing in-memory connection
+        if not self.conn:
+            print(f"⚠️ In-memory database not connected")
             return {
                 'status': 'not_connected',
                 'total_files': 0,
@@ -363,9 +362,9 @@ class BasicMemoryDuckdb(Reader):
             }
         
         try:
-            # Create new connection for this query
-            print(f"🔌 Connecting to database: {self.db_path}")
-            conn = duckdb.connect(str(self.db_path))
+            # Use existing in-memory connection
+            print(f"🔌 Using in-memory database connection")
+            conn = self.conn
             
             try:
                 # Get basic stats across all tables
@@ -410,9 +409,8 @@ class BasicMemoryDuckdb(Reader):
                     'health_status': 'Healthy' if total_assets > 0 else 'Empty'
                 }
             finally:
-                # Always close the connection
-                conn.close()
-                print("🔌 Connection closed")
+                # No need to close connection for in-memory database
+                pass
                 
         except Exception as e:
             print(f"❌ Error in get_performance_stats: {str(e)}")
