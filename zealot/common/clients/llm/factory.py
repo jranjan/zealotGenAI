@@ -2,7 +2,17 @@
 Minimal LLM Client Factory
 """
 
-from client import LLMClient
+from enum import Enum
+from .client import LLMClient
+
+
+class LLMClientType(Enum):
+    """LLM client type enumeration."""
+    OPENAI = "openai"
+    COHERE = "cohere"
+    ANTHROPIC = "anthropic"
+    GOOGLE = "google"
+    OPENROUTER = "openrouter"
 
 
 class LLMClientFactory:

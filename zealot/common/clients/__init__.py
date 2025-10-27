@@ -4,14 +4,16 @@ Concrete implementations for different LLM providers
 """
 
 from zealot.common.clients.llm.factory import LLMClientFactory, LLMClientType
-from zealot.common.clients.llm.provider.cohere import CohereClient
+from zealot.common.clients.llm.client import LLMClient
+
+# Stub for backward compatibility
+class OpenRouterModel:
+    """Stub class for OpenRouterModel."""
+    pass
 
 __all__ = [
     'LLMClientFactory',
     'LLMClientType',
-    'CohereClient', 
-    'OpenAIClient',
-    'AnthropicClient',
-    'GoogleClient',
-    'OpenRouterClient'
+    'LLMClient',
+    'OpenRouterModel'
 ]
