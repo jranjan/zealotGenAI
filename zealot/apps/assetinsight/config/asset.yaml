@@ -61,10 +61,5 @@ common_fields:
 
 tables:
   ec2:
-  containers:
   network_device:
   servers:
-  rds:
-  aws_accounts:
-  aws_services:
-  services:

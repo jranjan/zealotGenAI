@@ -516,8 +516,15 @@ class LoadTab(BaseTab):
             if readiness_result.get('ready', False):
                 
                 # Query for the specific asset
+                # Get actual tables that exist in the database
+                tables_result = reader.conn.execute("SHOW TABLES").fetchall()
+                table_names = [table[0] for table in tables_result] if tables_result else []
+                
+                if not table_names:
+                    st.warning("⚠️ No tables found in database")
+                    return
+                
                 # Query across all asset tables using UNION
-                table_names = AssetClass.get_all_table_names()
                 union_query = " UNION ALL ".join([f"SELECT * FROM {table_name} WHERE id = '{asset_id}'" for table_name in table_names])
                 db_query = f"SELECT * FROM ({union_query}) LIMIT 1"
                 db_results = reader.execute_query(db_query)
