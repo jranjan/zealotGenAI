@@ -79,13 +79,13 @@ class SourceTab(BaseTab):
             return None
         
         try:
-            # Get valid folder names (exclude system directories and folders starting with __)
+            # Get valid folder names (exclude system directories and directories starting with _ or __)
             system_dirs = [member.value for member in SystemDirectory]
             folder_names = [
                 item for item in os.listdir(self.source_folder)
                 if os.path.isdir(os.path.join(self.source_folder, item)) 
-                and item not in system_dirs 
-                and not item.startswith('__')
+                and item not in system_dirs
+                and not item.startswith('_')  # Excludes directories starting with _ or __
             ]
             
             if not folder_names:
@@ -98,8 +98,8 @@ class SourceTab(BaseTab):
             folder_mapping = {}
             
             for folder_name in folder_names:
-                # Try to find matching AssetClass by class_name
-                display_name = self._get_asset_class_display_name(folder_name)
+                friendly_name = self._get_friendly_asset_class_name(folder_name)
+                display_name = friendly_name  # Show only friendly name
                 options.append(display_name)
                 folder_mapping[display_name] = folder_name
             

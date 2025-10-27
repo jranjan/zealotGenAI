@@ -168,18 +168,23 @@ class ScanTab(BaseTab):
                     result = db_instance.conn.execute(query).fetchall()
                     if result:
                         if query_name in ['total_assets', 'scanned_assets']:
-                            results[query_name] = result[0][0]
-                            print(f"✅ {query_name}: {result[0][0]}")
+                            # Ensure we get a single numeric value
+                            value = result[0][0]
+                            # Handle case where result might be a list
+                            if isinstance(value, list):
+                                value = value[0] if value else 0
+                            results[query_name] = int(value) if value is not None else 0
+                            print(f"✅ {query_name}: {results[query_name]}")
                         else:
                             results[query_name] = result
                             print(f"✅ {query_name}: {len(result)} records")
                     else:
-                        results[query_name] = []
+                        results[query_name] = [] if query_name not in ['total_assets', 'scanned_assets'] else 0
                         print(f"⚠️ {query_name}: No results")
                 except Exception as e:
                     print(f"❌ Error executing {query_name}: {e}")
                     st.error(f"Error executing {query_name}: {e}")
-                    results[query_name] = []
+                    results[query_name] = [] if query_name not in ['total_assets', 'scanned_assets'] else 0
             
             # Debug: Show summary of results
             total_assets = results.get('total_assets', 0)
@@ -354,8 +359,18 @@ class ScanTab(BaseTab):
         """Display scan recommendations"""
         st.markdown("### 💡 Scan Recommendations")
         
+        # Ensure values are numeric
         total_assets = scan_data.get('total_assets', 0)
         scanned_assets = scan_data.get('scanned_assets', 0)
+        
+        # Convert to int if they're not already numeric
+        try:
+            total_assets = int(total_assets) if total_assets is not None else 0
+            scanned_assets = int(scanned_assets) if scanned_assets is not None else 0
+        except (ValueError, TypeError):
+            total_assets = 0
+            scanned_assets = 0
+        
         coverage_pct = (scanned_assets / total_assets * 100) if total_assets > 0 else 0
         
         recommendations = []

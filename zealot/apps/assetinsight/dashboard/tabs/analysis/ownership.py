@@ -13,6 +13,7 @@ import pandas as pd
 sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 from analyser.asset.owner import OwnerAnalyser
 from utils.dataframe_utils import safe_dataframe, clean_numeric_column, clean_string_column
+from common.asset_class import AssetClass
 
 
 class OwnershipAnalyserTab(BaseTab):
@@ -48,6 +49,90 @@ class OwnershipAnalyserTab(BaseTab):
         
         return target_folder
     
+    def _render_asset_class_selector(self):
+        """Render asset class selector based on available tables in the database"""
+        # Get database instance
+        db_instance = st.session_state.get('db_instance')
+        
+        if not db_instance:
+            st.selectbox(
+                "Choose asset class:",
+                options=["Database not loaded"],
+                disabled=True,
+                help="Load database first in Load tab",
+                key="ownership_asset_class_select"
+            )
+            return
+        
+        try:
+            # Get available tables from database
+            tables_result = db_instance.conn.execute("SHOW TABLES").fetchall()
+            table_names = [table[0] for table in tables_result] if tables_result else []
+            
+            if not table_names:
+                st.selectbox(
+                    "Choose asset class:",
+                    options=["No tables found"],
+                    disabled=True,
+                    help="No tables found in database",
+                    key="ownership_asset_class_select"
+                )
+                return
+            
+            # Create options with friendly names
+            options = []
+            table_mapping = {}
+            
+            for table_name in table_names:
+                # Get friendly name from AssetClass enum
+                friendly_name = self._get_friendly_name_from_table(table_name)
+                display_name = friendly_name
+                options.append(display_name)
+                table_mapping[display_name] = table_name
+            
+            if not options:
+                st.selectbox(
+                    "Choose asset class:",
+                    options=["No valid tables"],
+                    disabled=True,
+                    help="No valid asset class tables",
+                    key="ownership_asset_class_select"
+                )
+                return
+            
+            selected = st.selectbox(
+                "Choose asset class:",
+                options=options,
+                help="Select the asset class to analyze",
+                key="ownership_asset_class_select"
+            )
+            
+            # Store selected table name in session state
+            if selected and selected in table_mapping:
+                st.session_state['selected_asset_class_table'] = table_mapping[selected]
+            
+        except Exception as e:
+            st.selectbox(
+                "Choose asset class:",
+                options=[f"Error: {str(e)[:30]}"],
+                disabled=True,
+                help=f"Error getting tables: {str(e)}",
+                key="ownership_asset_class_select"
+            )
+    
+    def _get_friendly_name_from_table(self, table_name: str) -> str:
+        """Get friendly name for asset class from table name"""
+        try:
+            # Map table name to AssetClass enum using table_name property
+            for asset_class in AssetClass:
+                # Check if this table name matches the asset class table name
+                if table_name == asset_class.table_name or table_name.lower() == asset_class.table_name.lower():
+                    return asset_class.user_name
+            # If no match found, return capitalized table name
+            return table_name.replace('_', ' ').title()
+        except Exception:
+            return table_name.replace('_', ' ').title()
+    
     def _render_analysis_tools(self, target_folder):
         """Render analysis tools with left-right layout."""
         # Create left and right columns (15% for buttons, 85% for results)
@@ -74,6 +159,9 @@ class OwnershipAnalyserTab(BaseTab):
             st.session_state['selected_asset_class'] = selected_asset_class
             
             st.markdown("---")
+            
+            # Asset class selector
+            self._render_asset_class_selector()
             
             # All analysis buttons in single column
             if st.button("Ownership Summary", type="primary", width='stretch'):
@@ -207,8 +295,9 @@ class OwnershipAnalyserTab(BaseTab):
                 st.info("👆 Click any analysis button to see results here")
         
         
-        # Details Section - Analysis Results
-        if st.session_state.get('ownership_complete', False):
+        # This section is deprecated - results are now shown in tabs above
+        # Keeping this commented code for reference but not displaying it anymore
+        if False and st.session_state.get('ownership_complete', False):
             st.markdown("---")
             # Show the analysis results
             summary = st.session_state.get('ownership_summary', {})
@@ -406,8 +495,22 @@ class OwnershipAnalyserTab(BaseTab):
             # Calculate owned percentage for consistency
             owned_percentage = ((df['total_assets'].sum() - total_unowned) / df['total_assets'].sum()) * 100 if df['total_assets'].sum() > 0 else 0
             
+            # Properly format metric name based on title
+            if title == "Parent Cloud":
+                metric_name = "Total Parent Clouds"
+            elif title == "Cloud":
+                metric_name = "Total Clouds"
+            elif title == "Team":
+                metric_name = "Total Teams"
+            elif title == "MBU":
+                metric_name = "Total MBUs"
+            elif title == "BU":
+                metric_name = "Total BUs"
+            else:
+                metric_name = f"Total {title}s"
+            
             summary_data = {
-                'Metric': [f'Total {title}s', 'Total Unowned Assets', 'Ownership Coverage'],
+                'Metric': [metric_name, 'Total Unowned Assets', 'Ownership Coverage'],
                 'Count': [len(df), f"{total_unowned:,}", f"{owned_percentage:.1f}%"]
             }
             
@@ -482,7 +585,17 @@ class OwnershipAnalyserTab(BaseTab):
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            summary = self.analyser.get_ownership_summary(asset_class)
+            
+            # Get the selected asset class table from session state
+            selected_table = st.session_state.get('selected_asset_class_table')
+            
+            # If a specific table is selected, query only that table
+            if selected_table:
+                summary = self.analyser.get_ownership_summary_for_table(selected_table)
+            else:
+                # Otherwise query all tables
+                summary = self.analyser.get_ownership_summary()
+            
             if summary is None:
                 return {
                     'type': 'ownership_summary',
@@ -554,7 +667,11 @@ class OwnershipAnalyserTab(BaseTab):
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_parent_cloud_distribution(asset_class)
+            
+            # Get the selected asset class table from session state
+            selected_table = st.session_state.get('selected_asset_class_table')
+            distribution = self.analyser.get_parent_cloud_distribution(selected_table)
+            
             if distribution is None:
                 return {
                     'type': 'parent_cloud_analysis',
@@ -811,7 +928,11 @@ class OwnershipAnalyserTab(BaseTab):
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_cloud_distribution(asset_class)
+            
+            # Get the selected asset class table from session state
+            selected_table = st.session_state.get('selected_asset_class_table')
+            distribution = self.analyser.get_cloud_distribution(selected_table)
+            
             if distribution is None or len(distribution) == 0:
                 return {
                     'type': 'cloud_analysis',
@@ -838,7 +959,11 @@ class OwnershipAnalyserTab(BaseTab):
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_team_distribution(asset_class)
+            
+            # Get the selected asset class table from session state
+            selected_table = st.session_state.get('selected_asset_class_table')
+            distribution = self.analyser.get_team_distribution(selected_table)
+            
             if distribution is None or len(distribution) == 0:
                 return {
                     'type': 'team_analysis',
@@ -865,7 +990,11 @@ class OwnershipAnalyserTab(BaseTab):
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_mbu_distribution(asset_class)
+            
+            # Get the selected asset class table from session state
+            selected_table = st.session_state.get('selected_asset_class_table')
+            distribution = self.analyser.get_mbu_distribution(selected_table)
+            
             if distribution is None or len(distribution) == 0:
                 return {
                     'type': 'mbu_analysis',
@@ -892,7 +1021,11 @@ class OwnershipAnalyserTab(BaseTab):
         try:
             # Ensure reader connection is established
             self._ensure_reader_connection(target_folder)
-            distribution = self.analyser.get_bu_distribution(asset_class)
+            
+            # Get the selected asset class table from session state
+            selected_table = st.session_state.get('selected_asset_class_table')
+            distribution = self.analyser.get_bu_distribution(selected_table)
+            
             if distribution is None or len(distribution) == 0:
                 return {
                     'type': 'bu_analysis',
