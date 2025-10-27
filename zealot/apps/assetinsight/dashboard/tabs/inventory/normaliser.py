@@ -9,16 +9,15 @@ import multiprocessing
 from pathlib import Path
 import pandas as pd
 import sys
-from collections import defaultdict
 
 # Add the current directory to Python path
-current_dir = Path(__file__).parent.parent.parent
+current_dir = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(current_dir))
 
 from transformer import TransformerFactory, TransformerType
 from common.system_data import SystemDirectory
 from utils.dataframe_utils import safe_dataframe
-from .base import BaseTab
+from ..base import BaseTab
 
 
 class NormaliserTab(BaseTab):
@@ -85,7 +84,7 @@ class NormaliserTab(BaseTab):
     
     def _show_output_path(self, source_folder):
         """Show output path placeholder."""
-        project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve()
+        project_root = Path(__file__).parent.parent.parent.parent.parent.parent.parent.resolve()
         
         if source_folder and Path(source_folder).exists():
             source_path = Path(source_folder).resolve()
@@ -106,7 +105,7 @@ class NormaliserTab(BaseTab):
         timestamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
         
         # Get the project root directory (independent of where script is run from)
-        project_root = Path(__file__).parent.parent.parent.parent.parent.parent.resolve()
+        project_root = Path(__file__).parent.parent.parent.parent.parent.parent.parent.resolve()
         
         # Use custom target folder if provided, otherwise generate timestamped path
         if self.target_folder and self.target_folder.strip():
@@ -134,7 +133,7 @@ class NormaliserTab(BaseTab):
         target_path = Path(target_folder).resolve()
         
         # Get the actual assetinsight directory (where this file is located)
-        assetinsight_dir = Path(__file__).parent.parent.parent.resolve()
+        assetinsight_dir = Path(__file__).parent.parent.parent.parent.resolve()
         
         # Check if target is the assetinsight directory or inside assetinsight
         if (target_path == assetinsight_dir or 
@@ -388,3 +387,4 @@ class NormaliserTab(BaseTab):
         
         # If no match found, return the class name as is
         return class_name
+

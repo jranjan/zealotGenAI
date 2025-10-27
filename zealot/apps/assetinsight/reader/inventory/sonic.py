@@ -10,7 +10,7 @@ from typing import Dict, Any, List, Set
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import warnings
 import logging
-from .base import Reader
+from ..base import Reader
 
 # Suppress Streamlit warnings in multiprocessing workers
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")

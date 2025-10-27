@@ -10,14 +10,14 @@ import pandas as pd
 import sys
 
 # Add the current directory to Python path
-current_dir = Path(__file__).parent.parent.parent
+current_dir = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(current_dir))
 
 from reader import ReaderFactory, ReaderType
 from common.system_data import SystemDirectory
 from common.asset_class import AssetClass
 from utils.dataframe_utils import safe_dataframe
-from .base import BaseTab
+from ..base import BaseTab
 
 
 class SourceTab(BaseTab):
@@ -240,3 +240,4 @@ class SourceTab(BaseTab):
         
         # If no match found, return the folder name as is
         return folder_name
+

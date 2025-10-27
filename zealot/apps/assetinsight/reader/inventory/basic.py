@@ -6,7 +6,7 @@ import json
 import os
 from pathlib import Path
 from typing import Dict, Any
-from .base import Reader
+from ..base import Reader
 
 
 class BasicReader(Reader):

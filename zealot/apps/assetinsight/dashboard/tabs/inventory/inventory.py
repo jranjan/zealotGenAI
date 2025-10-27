@@ -8,13 +8,13 @@ import sys
 from pathlib import Path
 
 # Add the current directory to Python path
-sys.path.append(str(Path(__file__).parent.parent.parent))
+sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
-from dashboard.tabs.base import BaseTab
-from dashboard.tabs.source import SourceTab
-from dashboard.tabs.normaliser import NormaliserTab
-from dashboard.tabs.load import LoadTab
-from dashboard.tabs.analysis.ownership import OwnershipAnalyserTab
+from ..base import BaseTab
+from .source import SourceTab
+from .normaliser import NormaliserTab
+from .load import LoadTab
+from ..analysis.ownership import OwnershipAnalyserTab
 
 
 class InventoryTab(BaseTab):
@@ -67,3 +67,4 @@ class InventoryTab(BaseTab):
             'database_ready': st.session_state.get('database_ready', False),
             'ownership_complete': st.session_state.get('ownership_complete', False)
         }
+

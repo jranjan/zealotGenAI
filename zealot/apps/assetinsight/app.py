@@ -27,7 +27,7 @@ sys.path.insert(0, str(current_dir))
 
 # Import dashboard components
 from dashboard.tabs.inventory import InventoryTab
-from dashboard.tabs.scan import ScanTab
+from dashboard.tabs.scan.scan import ScanTab
 
 
 # Page configuration

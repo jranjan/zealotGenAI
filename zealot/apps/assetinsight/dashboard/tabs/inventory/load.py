@@ -10,9 +10,9 @@ import multiprocessing
 import json
 
 # Add the current directory to Python path
-sys.path.append(str(Path(__file__).parent.parent.parent))
+sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
-from dashboard.tabs.base import BaseTab
+from ..base import BaseTab
 from utils.dataframe_utils import safe_dataframe
 from database import DatabaseFactory, DatabaseType
 from common.asset_class import AssetClass
@@ -649,3 +649,4 @@ class LoadTab(BaseTab):
         
         # If no match found, return the class name as is
         return class_name
+
