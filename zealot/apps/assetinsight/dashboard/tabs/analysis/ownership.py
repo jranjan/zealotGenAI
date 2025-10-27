@@ -140,27 +140,7 @@ class OwnershipAnalyserTab(BaseTab):
         
         # Left pane: Asset class selector and analysis buttons
         with left_col:
-            # Asset class selector
-            st.markdown("#### Asset Class Filter")
-            from common.asset_class import AssetClass
-            
-            # Get available asset classes
-            asset_classes = [ac.class_name for ac in AssetClass]
-            
-            selected_asset_class = st.selectbox(
-                "Choose Asset Class:",
-                options=asset_classes,
-                index=0,
-                key="ownership_asset_class_selector",
-                help="Select a specific asset class to analyze"
-            )
-            
-            # Store selected asset class in session state
-            st.session_state['selected_asset_class'] = selected_asset_class
-            
-            st.markdown("---")
-            
-            # Asset class selector
+            # Asset class selector - gets actual tables from database
             self._render_asset_class_selector()
             
             # All analysis buttons in single column

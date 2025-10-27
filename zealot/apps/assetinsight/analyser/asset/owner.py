@@ -566,6 +566,7 @@ class OwnerAnalyser(AssetAnalyser):
     
     def get_bu_distribution(self, table_name: str = None) -> List[Dict[str, Any]]:
         """
+        Get ownership distribution by BU (Business Unit) and MBU (Management Business Unit) using DuckDB SQL query.
         
         Args:
             table_name: Optional specific table to query. If None, queries all tables.
@@ -573,53 +574,11 @@ class OwnerAnalyser(AssetAnalyser):
         Returns:
             List of dictionaries containing bu, mbu, total_assets, and unowned_assets
             
-        return self._get_bu_mbu_distribution(bu_field, mbu_field, asset_class) if bu_field else []
-    
-    def _get_bu_mbu_distribution(self, bu_field: str, mbu_field: str, asset_class: str = None) -> List[Dict[str, Any]]:
-        """Get BU/MBU distribution with field expressions"""
-        # Check if fields are JSON
-        bu_expr = f"JSON_EXTRACT_STRING(\"{bu_field}\", '$.bu')" if self._is_json_field(bu_field, asset_class) else f"\"{bu_field}\""
-        mbu_expr = f"JSON_EXTRACT_STRING(\"{mbu_field}\", '$.mbu')" if self._is_json_field(mbu_field, asset_class) else f"\"{mbu_field}\""
-        
-        query = f"""
-            SELECT 
-                COALESCE(NULLIF({bu_expr}, ''), 'Unknown BU') as bu,
-                COALESCE(NULLIF({mbu_expr}, ''), 'Unknown MBU') as mbu,
-                COUNT(*) as total_assets,
-                SUM(CASE 
-                    WHEN ({bu_expr} IS NULL OR {bu_expr} = '') 
-                    THEN 1 ELSE 0 
-                END) as unowned_assets
-            FROM {{table}} 
-            GROUP BY 
-                COALESCE(NULLIF({bu_expr}, ''), 'Unknown BU'),
-                COALESCE(NULLIF({mbu_expr}, ''), 'Unknown MBU')
+        Raises:
+            ValueError: If reader is not initialized
         """
-        
-        if asset_class:
-            table_name = self._get_table_name(asset_class)
-            if table_name:
-                return self._query_single_table(query, table_name)
-        else:
-            results = self._query_all_tables(query)
-            # Combine by bu and mbu
-            combined = {}
-            for result in results:
-                key = (result['bu'], result['mbu'])
-                if key not in combined:
-                    combined[key] = {'bu': result['bu'], 'mbu': result['mbu'], 'total_assets': 0, 'unowned_assets': 0}
-                combined[key]['total_assets'] += result['total_assets']
-                combined[key]['unowned_assets'] += result['unowned_assets']
-            
-            result_list = list(combined.values())
-            result_list.sort(key=lambda x: x['total_assets'], reverse=True)
-            return result_list
-        return []
-    
-    def _is_json_field(self, field: str, asset_class: str = None) -> bool:
-        """Check if field contains JSON data"""
-        if not field:
-            return False
+        if not self.reader:
+            raise ValueError("Reader not initialized. Call create_reader() first.")
         
         try:
             _, _, available_columns = self._get_table_and_columns(table_name)
@@ -649,31 +608,5 @@ class OwnerAnalyser(AssetAnalyser):
             distribution_query = self._build_multi_field_distribution_query(table_name, fields_config)
             return self.reader.execute_query(distribution_query)
             
-            for table_name in tables_to_check:
-                try:
-                    columns_result = self.reader.execute_query(f"PRAGMA table_info({table_name})")
-                    available_columns = [col['name'] for col in columns_result] if columns_result else []
-                    print(f"📋 Available columns in {table_name}: {available_columns}")
-                    
-                    # Look for any field that might contain ownership data
-                    ownership_candidates = [col for col in available_columns if any(term in col.lower() for term in [
-                        'mbu', 'bu', 'cloud', 'team', 'owner', 'parent', 'properties', 'attribution', 'ownership'
-                    ])]
-                    if ownership_candidates:
-                        print(f"🎯 Potential ownership fields in {table_name}: {ownership_candidates}")
-                        
-                        # Show sample data for potential fields
-                        for candidate in ownership_candidates[:5]:  # Check first 5 candidates
-                            try:
-                                sample_query = f"SELECT \"{candidate}\" FROM {table_name} LIMIT 1"
-                                sample_result = self.reader.execute_query(sample_query)
-                                if sample_result and sample_result[0][candidate]:
-                                    sample_value = str(sample_result[0][candidate])[:100]
-                                    print(f"📄 Sample data for {candidate}: {sample_value}...")
-                            except Exception as e:
-                                print(f"⚠️ Error sampling {candidate}: {e}")
-                except Exception as e:
-                    print(f"⚠️ Error checking table {table_name}: {e}")
-                    
         except Exception as e:
             return []

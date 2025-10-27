@@ -27,13 +27,13 @@ sys.path.insert(0, app_path)
 sys.path.insert(0, streamlit_path)
 sys.path.insert(0, prompt_path)
 
-# Direct imports
-from client import LLMClient, ProviderInfo
-from factory import LLMClientFactory
-from catalog import LLMModelCatalog
-from llm import LLMApp
-from copyright_footer import render_llm_studio_footer, render_app_header
-from custom import SystemPrompt
+# Direct imports - use absolute imports
+from zealot.common.clients.llm.client import LLMClient, ProviderInfo
+from zealot.common.clients.llm.factory import LLMClientFactory
+from zealot.common.catalog.llm.catalog import LLMModelCatalog
+from zealot.common.app.llm.llm import LLMApp
+from zealot.utils.streamlit.copyright_footer import render_llm_studio_footer, render_app_header
+from zealot.utils.prompt.custom import SystemPrompt
 
 
 @dataclass

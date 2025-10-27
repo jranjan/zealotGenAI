@@ -155,12 +155,7 @@ class LoadTab(BaseTab):
             # Convert technical class name to friendly display name
             friendly_asset_class = self._get_friendly_asset_class_name(selected_asset_class)
             
-            # Get table names that will be created
-            from common.asset_class import AssetClass
-            table_names = AssetClass.get_all_table_names()
-            table_list = ", ".join(table_names)
-            
-            with st.spinner(f"🗄️ Setting up database for {friendly_asset_class} analytics (Tables: {table_list})..."):
+            with st.spinner(f"🗄️ Setting up database for {friendly_asset_class}..."):
                 reader = DatabaseFactory.create_reader(
                     DatabaseType.SONIC,
                     target_folder,
@@ -169,6 +164,21 @@ class LoadTab(BaseTab):
                     memory_limit_gb=4.0
                 )
                 readiness_result = reader.check_data_readiness()
+                
+                # Get actual tables that exist in the database
+                if hasattr(reader, 'conn') and reader.conn:
+                    try:
+                        tables_result = reader.conn.execute("SHOW TABLES").fetchall()
+                        actual_table_names = [table[0] for table in tables_result] if tables_result else []
+                    except:
+                        actual_table_names = []
+                else:
+                    actual_table_names = []
+                
+                # Update spinner with actual tables
+                if actual_table_names:
+                    table_list = ", ".join(actual_table_names)
+                    st.spinner(f"🗄️ Database ready (Tables: {table_list})")
                 
                 if readiness_result.get('ready', False):
                     # Performance stats are already included in the factory result
@@ -179,21 +189,10 @@ class LoadTab(BaseTab):
                         'total_files': readiness_result.get('total_files', 0)
                     }
                     
-                    # Get actual tables created for enhanced messaging
-                    actual_tables = readiness_result.get('health_queries', [])
+                    # Use the actual tables we queried from the database
                     table_info = ""
-                    if actual_tables:
-                        # Extract table names from health queries
-                        created_tables = []
-                        for query in actual_tables:
-                            if "Table" in query and "exists with" in query:
-                                # Extract table name from query like "✅ Table 'aws_services' exists with 150 records"
-                                import re
-                                match = re.search(r"Table '([^']+)'", query)
-                                if match:
-                                    created_tables.append(match.group(1))
-                        if created_tables:
-                            table_info = f" (Tables: {', '.join(created_tables)})"
+                    if actual_table_names:
+                        table_info = f" (Tables: {', '.join(actual_table_names)})"
                     
                     # Database loaded successfully
                     result = {
