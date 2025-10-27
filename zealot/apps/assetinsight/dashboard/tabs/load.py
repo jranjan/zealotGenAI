@@ -148,7 +148,19 @@ class LoadTab(BaseTab):
             import time
             start_time = time.time()
             
-            with st.spinner("🗄️ Setting up database for high performance analytics..."):
+            # Get asset class info for enhanced messaging
+            normalised_data = st.session_state.get('normalised_data', {})
+            selected_asset_class = normalised_data.get('selected_asset_class', 'Unknown')
+            
+            # Convert technical class name to friendly display name
+            friendly_asset_class = self._get_friendly_asset_class_name(selected_asset_class)
+            
+            # Get table names that will be created
+            from common.asset_class import AssetClass
+            table_names = AssetClass.get_all_table_names()
+            table_list = ", ".join(table_names)
+            
+            with st.spinner(f"🗄️ Setting up database for {friendly_asset_class} analytics (Tables: {table_list})..."):
                 reader = DatabaseFactory.create_reader(
                     DatabaseType.SONIC,
                     target_folder,
@@ -167,10 +179,26 @@ class LoadTab(BaseTab):
                         'total_files': readiness_result.get('total_files', 0)
                     }
                     
+                    # Get actual tables created for enhanced messaging
+                    actual_tables = readiness_result.get('health_queries', [])
+                    table_info = ""
+                    if actual_tables:
+                        # Extract table names from health queries
+                        created_tables = []
+                        for query in actual_tables:
+                            if "Table" in query and "exists with" in query:
+                                # Extract table name from query like "✅ Table 'aws_services' exists with 150 records"
+                                import re
+                                match = re.search(r"Table '([^']+)'", query)
+                                if match:
+                                    created_tables.append(match.group(1))
+                        if created_tables:
+                            table_info = f" (Tables: {', '.join(created_tables)})"
+                    
                     # Database loaded successfully
                     result = {
                         'success': True,
-                        'message': 'Database loaded successfully with SonicMemoryDuckdb!',
+                        'message': f'Database loaded successfully for {friendly_asset_class} analytics with SonicMemoryDuckdb!{table_info}',
                         'stats': {
                             'total_assets': readiness_result.get('object_count', 0),
                             'total_files': readiness_result.get('json_files_found', 0),
@@ -194,9 +222,9 @@ class LoadTab(BaseTab):
                     processing_time = time.time() - start_time
                     print(f"⏱️ Load Database processing time = {processing_time:.2f} sec")
                     
-                    # Display processing time prominently in the tab
+                    # Display processing time prominently in the tab with context
                     st.success("✅ Database loaded successfully!")
-                    st.info(f"⏱️ **Processing time = {processing_time:.2f} sec**")
+                    st.info(f"⏱️ **{friendly_asset_class} Database Setup Time = {processing_time:.2f} sec**")
                     
                 else:
                     result = {
@@ -279,11 +307,24 @@ class LoadTab(BaseTab):
                     )
                 
                 with col3:
-                    st.metric(
-                        "🏷️ Asset Classes", 
-                        f"{stats.get('asset_classes', 1)} (Server)",
-                        help="Number of asset classes in the database"
-                    )
+                    # Get asset class info from session state or database stats
+                    asset_class_count = stats.get('asset_classes', 0)
+                    if asset_class_count > 0:
+                        st.metric(
+                            "🏷️ Asset Classes", 
+                            f"{asset_class_count}",
+                            help="Number of asset classes in the database"
+                        )
+                    else:
+                        # Show selected asset class from normalized tab
+                        normalised_data = st.session_state.get('normalised_data', {})
+                        selected_asset_class = normalised_data.get('selected_asset_class', 'Unknown')
+                        friendly_asset_class = self._get_friendly_asset_class_name(selected_asset_class)
+                        st.metric(
+                            "🏷️ Asset Classes", 
+                            f"0 ({friendly_asset_class})",
+                            help="Asset class from normalized data (database not loaded yet)"
+                        )
                 
                 with col4:
                     st.metric(
@@ -597,3 +638,15 @@ class LoadTab(BaseTab):
     def is_complete(self, workflow_state):
         """Check if database loading is complete"""
         return workflow_state.get('database_ready', False)
+    
+    def _get_friendly_asset_class_name(self, class_name: str) -> str:
+        """Convert technical class name to friendly display name using AssetClass enum"""
+        from common.asset_class import AssetClass
+        
+        # Try to find matching AssetClass by class_name
+        for asset_class in AssetClass:
+            if asset_class.class_name == class_name:
+                return asset_class.display_name
+        
+        # If no match found, return the class name as is
+        return class_name

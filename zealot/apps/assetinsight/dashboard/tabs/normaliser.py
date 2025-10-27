@@ -146,23 +146,30 @@ class NormaliserTab(BaseTab):
             import time
             start_time = time.time()
             
+            # Get asset class for enhanced messaging
+            selected_asset_class = st.session_state.get('selected_asset_class', 'Unknown')
+            
+            # Convert technical class name to friendly display name
+            friendly_asset_class = self._get_friendly_asset_class_name(selected_asset_class)
+            
             # Create a progress container for better feedback
             progress_container = st.container()
             with progress_container:
-                st.info("🔧 Starting data normalisation...")
+                st.info(f"🔧 Starting data normalisation for {friendly_asset_class}...")
                 progress_bar = st.progress(0)
                 status_text = st.empty()
             
             with st.spinner("🔧 Normalising data..."):
+                
                 # Update status
-                status_text.text("🔄 Processing files with optimized multiprocessing...")
+                status_text.text(f"🔄 Processing {friendly_asset_class} files with optimized multiprocessing...")
                 progress_bar.progress(0.1)
                 
                 result = self.transformer.transform_directory(source_folder, target_folder)
                 
                 # Update progress
                 progress_bar.progress(0.9)
-                status_text.text("✅ Normalisation complete!")
+                status_text.text(f"✅ {friendly_asset_class} normalisation complete!")
                 progress_bar.progress(1.0)
                 
                 if 'error' in result:
@@ -179,6 +186,7 @@ class NormaliserTab(BaseTab):
                     st.session_state.update({
                         'normalised_data': {
                             'target_folder': target_folder,
+                            'selected_asset_class': asset_class,  # Store the asset class
                             'total_files': result['total_files'],
                             'successful': result['successful'],
                             'failed': result['failed'],
@@ -193,7 +201,7 @@ class NormaliserTab(BaseTab):
                     
                     # Display processing time prominently in the tab
                     self._render_success_message("Data normalisation complete! Proceed to the Load tab to create the database.")
-                    st.info(f"⏱️ **Processing time = {processing_time:.2f} sec**")
+                    st.info(f"⏱️ **{friendly_asset_class} Processing Time = {processing_time:.2f} sec**")
                     st.rerun()
                     
         except Exception as e:
@@ -368,3 +376,15 @@ class NormaliserTab(BaseTab):
         with col2:
             st.markdown("#### 🔧 Flattened Asset")
             st.json(flattened_asset)
+    
+    def _get_friendly_asset_class_name(self, class_name: str) -> str:
+        """Convert technical class name to friendly display name using AssetClass enum"""
+        from common.asset_class import AssetClass
+        
+        # Try to find matching AssetClass by class_name
+        for asset_class in AssetClass:
+            if asset_class.class_name == class_name:
+                return asset_class.display_name
+        
+        # If no match found, return the class name as is
+        return class_name

@@ -38,7 +38,9 @@ class OwnerAnalyser(AssetAnalyser):
         union_query = " UNION ALL ".join(union_parts)
         print(f"🔍 Generated UNION query: {union_query[:200]}...")  # Show first 200 chars
         
-        return union_query
+        result_list = list(combined.values())
+        result_list.sort(key=lambda x: x['total_assets'], reverse=True)
+        return result_list
     
     def analyse(self, source_directory: str, result_directory: str) -> Dict[str, Any]:
         """
@@ -103,16 +105,8 @@ class OwnerAnalyser(AssetAnalyser):
         # No additional processing needed
         return asset
     
-    def get_ownership_summary(self) -> Dict[str, Any]:
-        """
-        Get ownership summary statistics using DuckDB SQL queries.
-        
-        Returns:
-            Dictionary containing ownership summary data
-            
-        Raises:
-            ValueError: If reader is not initialized
-        """
+    def get_ownership_summary(self, asset_class: str = None) -> Dict[str, Any]:
+        """Get ownership summary statistics"""
         if not self.reader:
             raise ValueError("Reader not initialized. Call create_reader() first.")
         
@@ -122,95 +116,31 @@ class OwnerAnalyser(AssetAnalyser):
             if not table_names:
                 return {"error": "No asset tables found"}
             
-            # Use the first table to get column info
+            # Get column info
             first_table = table_names[0]
             columns_result = self.reader.execute_query(f"PRAGMA table_info({first_table})")
             available_columns = [col['name'] for col in columns_result] if columns_result else []
             
-            # Get total assets using UNION across all tables
-            total_assets_query = self._create_union_query("SELECT COUNT(*) as total FROM assets")
-            total_assets_result = self.reader.execute_query(total_assets_query)
-            total_assets = total_assets_result[0]['total'] if total_assets_result else 0
+            # Find ownership fields
+            parent_cloud_field = next((col for col in available_columns if 'parentCloud.name' in col or 'parent_cloud' in col), None)
+            cloud_field = next((col for col in available_columns if 'cloud.name' in col or 'cloud' in col), None)
+            team_field = next((col for col in available_columns if 'team.name' in col or 'team' in col), None)
             
-            # Check for flattened attribution fields
-            parent_cloud_field = None
-            cloud_field = None
-            team_field = None
-            
-            for col in available_columns:
-                if 'parentCloud.name' in col or 'parent_cloud' in col:
-                    parent_cloud_field = col
-                elif 'cloud.name' in col or 'cloud' in col:
-                    cloud_field = col
-                elif 'team.name' in col or 'team' in col:
-                    team_field = col
-            
-            # Get total parent clouds (treating unknown/empty as "Zombie")
-            if parent_cloud_field:
-                try:
-                    total_parent_clouds_result = self.reader.execute_query(f"""
-                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{parent_cloud_field}", ''), 'Zombie')) as total 
-                        FROM assets
-                    """)
-                    total_parent_clouds = total_parent_clouds_result[0]['total'] if total_parent_clouds_result else 0
-                except Exception as e:
-                    # If query fails, don't update the metric
-                    total_parent_clouds = 0
+            # Get total assets
+            if asset_class:
+                table_name = self._get_table_name(asset_class)
+                total_assets = self._query_single_table("SELECT COUNT(*) as total FROM {table}", table_name)[0]['total'] if table_name else 0
             else:
-                total_parent_clouds = 0
+                total_assets = sum(self._query_single_table("SELECT COUNT(*) as total FROM {table}", tn)[0]['total'] for tn in table_names)
             
-            # Get total clouds (treating unknown/empty as "Zombie")
-            if cloud_field:
-                try:
-                    total_clouds_result = self.reader.execute_query(f"""
-                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{cloud_field}", ''), 'Zombie')) as total 
-                        FROM assets
-                    """)
-                    total_clouds = total_clouds_result[0]['total'] if total_clouds_result else 0
-                except Exception as e:
-                    # If query fails, don't update the metric
-                    total_clouds = 0
-            else:
-                total_clouds = 0
+            # Get counts for each field
+            total_parent_clouds = self._get_distinct_count(parent_cloud_field, asset_class) if parent_cloud_field else 0
+            total_clouds = self._get_distinct_count(cloud_field, asset_class) if cloud_field else 0
+            total_teams = self._get_distinct_count(team_field, asset_class) if team_field else 0
             
-            # Get total teams (treating unknown/empty as "Zombie")
-            if team_field:
-                try:
-                    total_teams_result = self.reader.execute_query(f"""
-                        SELECT COUNT(DISTINCT COALESCE(NULLIF("{team_field}", ''), 'Zombie')) as total 
-                        FROM assets
-                    """)
-                    total_teams = total_teams_result[0]['total'] if total_teams_result else 0
-                except Exception as e:
-                    # If query fails, don't update the metric
-                    total_teams = 0
-            else:
-                total_teams = 0
-            
-            # Get total assets unowned
-            unowned_conditions = []
-            if parent_cloud_field:
-                unowned_conditions.append(f'("{parent_cloud_field}" IS NULL OR "{parent_cloud_field}" = \'\')')
-            if cloud_field:
-                unowned_conditions.append(f'("{cloud_field}" IS NULL OR "{cloud_field}" = \'\')')
-            if team_field:
-                unowned_conditions.append(f'("{team_field}" IS NULL OR "{team_field}" = \'\')')
-            
-            if unowned_conditions:
-                try:
-                    unowned_query = f"""
-                        SELECT COUNT(*) as total 
-                        FROM assets 
-                        WHERE {' AND '.join(unowned_conditions)}
-                    """
-                    total_assets_unowned_result = self.reader.execute_query(unowned_query)
-                    total_assets_unowned = total_assets_unowned_result[0]['total'] if total_assets_unowned_result else 0
-                except Exception as e:
-                    # If query fails, don't update the metric
-                    total_assets_unowned = 0
-            else:
-                # If no ownership fields are detected, assume all assets are owned
-                total_assets_unowned = 0
+            # Get unowned assets
+            unowned_conditions = [f'("{field}" IS NULL OR "{field}" = \'\')' for field in [parent_cloud_field, cloud_field, team_field] if field]
+            total_assets_unowned = self._get_unowned_count(unowned_conditions, asset_class) if unowned_conditions else 0
             
             return {
                 'total_parent_clouds': total_parent_clouds,
@@ -607,7 +537,7 @@ class OwnerAnalyser(AssetAnalyser):
             ValueError: If reader is not initialized
         """
         if not self.reader:
-            raise ValueError("Reader not initialized. Call create_reader() first.")
+            return None
         
         try:
             _, _, available_columns = self._get_table_and_columns(table_name)
@@ -636,7 +566,6 @@ class OwnerAnalyser(AssetAnalyser):
     
     def get_bu_distribution(self, table_name: str = None) -> List[Dict[str, Any]]:
         """
-        Get ownership distribution by BU (Business Unit) and MBU (Management Business Unit) using DuckDB SQL query.
         
         Args:
             table_name: Optional specific table to query. If None, queries all tables.
@@ -644,11 +573,53 @@ class OwnerAnalyser(AssetAnalyser):
         Returns:
             List of dictionaries containing bu, mbu, total_assets, and unowned_assets
             
-        Raises:
-            ValueError: If reader is not initialized
+        return self._get_bu_mbu_distribution(bu_field, mbu_field, asset_class) if bu_field else []
+    
+    def _get_bu_mbu_distribution(self, bu_field: str, mbu_field: str, asset_class: str = None) -> List[Dict[str, Any]]:
+        """Get BU/MBU distribution with field expressions"""
+        # Check if fields are JSON
+        bu_expr = f"JSON_EXTRACT_STRING(\"{bu_field}\", '$.bu')" if self._is_json_field(bu_field, asset_class) else f"\"{bu_field}\""
+        mbu_expr = f"JSON_EXTRACT_STRING(\"{mbu_field}\", '$.mbu')" if self._is_json_field(mbu_field, asset_class) else f"\"{mbu_field}\""
+        
+        query = f"""
+            SELECT 
+                COALESCE(NULLIF({bu_expr}, ''), 'Unknown BU') as bu,
+                COALESCE(NULLIF({mbu_expr}, ''), 'Unknown MBU') as mbu,
+                COUNT(*) as total_assets,
+                SUM(CASE 
+                    WHEN ({bu_expr} IS NULL OR {bu_expr} = '') 
+                    THEN 1 ELSE 0 
+                END) as unowned_assets
+            FROM {{table}} 
+            GROUP BY 
+                COALESCE(NULLIF({bu_expr}, ''), 'Unknown BU'),
+                COALESCE(NULLIF({mbu_expr}, ''), 'Unknown MBU')
         """
-        if not self.reader:
-            raise ValueError("Reader not initialized. Call create_reader() first.")
+        
+        if asset_class:
+            table_name = self._get_table_name(asset_class)
+            if table_name:
+                return self._query_single_table(query, table_name)
+        else:
+            results = self._query_all_tables(query)
+            # Combine by bu and mbu
+            combined = {}
+            for result in results:
+                key = (result['bu'], result['mbu'])
+                if key not in combined:
+                    combined[key] = {'bu': result['bu'], 'mbu': result['mbu'], 'total_assets': 0, 'unowned_assets': 0}
+                combined[key]['total_assets'] += result['total_assets']
+                combined[key]['unowned_assets'] += result['unowned_assets']
+            
+            result_list = list(combined.values())
+            result_list.sort(key=lambda x: x['total_assets'], reverse=True)
+            return result_list
+        return []
+    
+    def _is_json_field(self, field: str, asset_class: str = None) -> bool:
+        """Check if field contains JSON data"""
+        if not field:
+            return False
         
         try:
             _, _, available_columns = self._get_table_and_columns(table_name)
@@ -678,5 +649,31 @@ class OwnerAnalyser(AssetAnalyser):
             distribution_query = self._build_multi_field_distribution_query(table_name, fields_config)
             return self.reader.execute_query(distribution_query)
             
+            for table_name in tables_to_check:
+                try:
+                    columns_result = self.reader.execute_query(f"PRAGMA table_info({table_name})")
+                    available_columns = [col['name'] for col in columns_result] if columns_result else []
+                    print(f"📋 Available columns in {table_name}: {available_columns}")
+                    
+                    # Look for any field that might contain ownership data
+                    ownership_candidates = [col for col in available_columns if any(term in col.lower() for term in [
+                        'mbu', 'bu', 'cloud', 'team', 'owner', 'parent', 'properties', 'attribution', 'ownership'
+                    ])]
+                    if ownership_candidates:
+                        print(f"🎯 Potential ownership fields in {table_name}: {ownership_candidates}")
+                        
+                        # Show sample data for potential fields
+                        for candidate in ownership_candidates[:5]:  # Check first 5 candidates
+                            try:
+                                sample_query = f"SELECT \"{candidate}\" FROM {table_name} LIMIT 1"
+                                sample_result = self.reader.execute_query(sample_query)
+                                if sample_result and sample_result[0][candidate]:
+                                    sample_value = str(sample_result[0][candidate])[:100]
+                                    print(f"📄 Sample data for {candidate}: {sample_value}...")
+                            except Exception as e:
+                                print(f"⚠️ Error sampling {candidate}: {e}")
+                except Exception as e:
+                    print(f"⚠️ Error checking table {table_name}: {e}")
+                    
         except Exception as e:
             return []

@@ -92,7 +92,7 @@ class SourceTab(BaseTab):
                 st.warning("⚠️ No subdirectories found in the selected path")
                 return None
             
-            # Create selectbox options with friendly names
+            # Create selectbox options using AssetClass display names
             folder_names.sort()
             options = []
             folder_mapping = {}
@@ -160,7 +160,8 @@ class SourceTab(BaseTab):
                 print(f"⏱️ Analyze Source processing time = {processing_time:.2f} sec")
                 
                 # Display processing time prominently in the tab
-                st.success(f"✅ Analysis complete for {self.asset_class}!")
+                friendly_asset_class = self._get_asset_class_display_name(self.asset_class)
+                st.success(f"✅ Analysis complete for {friendly_asset_class}!")
                 st.info(f"⏱️ **Processing time = {processing_time:.2f} sec**")
                 
         except Exception as e:
@@ -227,3 +228,15 @@ class SourceTab(BaseTab):
         
         df_files = safe_dataframe(table_data)
         st.dataframe(df_files, width='content')
+    
+    def _get_asset_class_display_name(self, folder_name: str) -> str:
+        """Get display name from AssetClass enum for folder name"""
+        from common.asset_class import AssetClass
+        
+        # Try to find matching AssetClass by class_name
+        for asset_class in AssetClass:
+            if asset_class.class_name == folder_name:
+                return asset_class.display_name
+        
+        # If no match found, return the folder name as is
+        return folder_name
